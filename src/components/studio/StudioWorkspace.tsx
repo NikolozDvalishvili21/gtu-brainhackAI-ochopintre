@@ -17,6 +17,7 @@ export default function StudioWorkspace() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
+      <Navbar />
       <div className="flex flex-1 overflow-hidden">
         <main className="flex-1 overflow-hidden bg-surface">
           {viewMode === "2d" ? <Editor2D /> : <Scene3D />}

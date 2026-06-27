@@ -16,6 +16,11 @@ const DOOR_H = 2.1;
 const WIN_SILL = 0.9;
 const WIN_H = 1.2;
 
+// nova/domino სურათებს CORS არ აქვთ — WebGL ტექსტურისთვის API proxy-ით ვტვირთავთ
+const API_BASE = "https://interior-materials-api.onrender.com";
+const proxiedImg = (url: string) =>
+  url.startsWith("http") ? `${API_BASE}/img?url=${encodeURIComponent(url)}` : url;
+
 function makeWallKey(x1: number, z1: number, x2: number, z2: number) {
   return `${Math.round(x1 * 1000)},${Math.round(z1 * 1000)},${Math.round(x2 * 1000)},${Math.round(z2 * 1000)}`;
 }
@@ -98,9 +103,10 @@ function useImageTexture(url: string | null): THREE.Texture | null {
       return;
     }
     const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin("anonymous");
     let cancelled = false;
     loader.load(
-      url,
+      proxiedImg(url),
       (t) => {
         if (cancelled) return;
         t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -572,7 +578,8 @@ function WallMesh({
 // ─── Floor & Ceiling per room ─────────────────────────────────────────────────
 
 function RoomSurfaces({ room }: { room: RoomShape }) {
-  const { materials } = useRoomStore();
+  const { materials, floorMaterials, selectedFloorRoomId, setSelectedFloor } =
+    useRoomStore();
   const floorTex = useProceduralTexture(
     materials.floorTexture || "parquet",
     "#C8A882",
@@ -583,15 +590,16 @@ function RoomSurfaces({ room }: { room: RoomShape }) {
   const cx = room.x + W / 2,
     cz = room.y + D / 2;
 
-  const floorMat = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({ map: floorTex.clone(), roughness: 0.8 }),
-    [floorTex],
-  );
+  // API-დან მინიჭებული იატაკის სურათი (proxy-ით useImageTexture-ში)
+  const assignedFloor = floorMaterials?.[room.id] ?? null;
+  const floorImgTex = useImageTexture(assignedFloor?.image ?? null);
+
   const ceilMat = useMemo(
     () => new THREE.MeshStandardMaterial({ color: ceilColor, roughness: 0.95 }),
     [ceilColor],
   );
+
+  const isFloorSelected = selectedFloorRoomId === room.id;
 
   return (
     <group>
@@ -599,10 +607,26 @@ function RoomSurfaces({ room }: { room: RoomShape }) {
         rotation={[-Math.PI / 2, 0, 0]}
         position={[cx, 0.001, cz]}
         receiveShadow
+        onClick={(e: ThreeEvent<MouseEvent>) => {
+          e.stopPropagation();
+          setSelectedFloor(room.id);
+        }}
       >
         <planeGeometry args={[W, D]} />
-        <primitive object={floorMat} attach="material" />
+        {floorImgTex ? (
+          <meshStandardMaterial map={floorImgTex} roughness={0.8} />
+        ) : (
+          <meshStandardMaterial map={floorTex} roughness={0.8} />
+        )}
       </mesh>
+
+      {isFloorSelected && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[cx, 0.004, cz]}>
+          <planeGeometry args={[W, D]} />
+          <meshBasicMaterial color="#2D6A4F" transparent opacity={0.18} />
+        </mesh>
+      )}
+
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[cx, WALL_H, cz]}>
         <planeGeometry args={[W, D]} />
         <primitive object={ceilMat} attach="material" />

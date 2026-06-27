@@ -78,19 +78,21 @@ export interface WallColor {
   color: string;
 }
 
+export interface MaterialRef {
+  id: string;
+  name: string;
+  image: string;
+  price: number;
+  currency: string;
+  unit: string;
+  category: string;
+}
+
 export interface WallMaterialAssignment {
   // paint color (from /colors API)
   color?: WallColor;
-  // material with image (from /materials API)
-  material?: {
-    id: string;
-    name: string;
-    image: string;
-    price: number;
-    currency: string;
-    unit: string;
-    category: string;
-  };
+  // material with image — e.g. wallpaper (from /materials API)
+  material?: MaterialRef;
   wallArea?: number;
 }
 
@@ -114,6 +116,10 @@ interface EditorStore {
   selectedWallKey: string | null;
   selectedFurnitureId: string | null;
   wallMaterials: Record<string, WallMaterialAssignment>;
+
+  // ── Floor selection & per-room floor material ────────────────────────────
+  selectedFloorRoomId: string | null;
+  floorMaterials: Record<string, MaterialRef>;
 
   // ── Actions ───────────────────────────────────────────────────────────────
   setViewMode: (m: ViewMode) => void;
@@ -145,6 +151,11 @@ interface EditorStore {
   // ── Convenience: set only color ───────────────────────────────────────────
   setWallColor: (wallKey: string, color: WallColor) => void;
   clearWallColor: (wallKey: string) => void;
+
+  // ── Floor material actions ────────────────────────────────────────────────
+  setSelectedFloor: (roomId: string | null) => void;
+  setFloorMaterial: (roomId: string, material: MaterialRef) => void;
+  clearFloorMaterial: (roomId: string) => void;
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -181,6 +192,9 @@ export const useRoomStore = create<EditorStore>((set) => ({
   selectedWallKey: null,
   selectedFurnitureId: null,
   wallMaterials: {},
+
+  selectedFloorRoomId: null,
+  floorMaterials: {},
 
   setViewMode: (m) => set({ viewMode: m }),
   setActiveTool: (t) => set({ activeTool: t }),
@@ -242,13 +256,23 @@ export const useRoomStore = create<EditorStore>((set) => ({
       selectedWallKey: null,
       selectedFurnitureId: null,
       wallMaterials: {},
+      selectedFloorRoomId: null,
+      floorMaterials: {},
     }),
 
   setSelectedWall: (key) =>
-    set({ selectedWallKey: key, selectedFurnitureId: null }),
+    set({
+      selectedWallKey: key,
+      selectedFurnitureId: null,
+      selectedFloorRoomId: null,
+    }),
 
   setSelectedFurniture: (id) =>
-    set({ selectedFurnitureId: id, selectedWallKey: null }),
+    set({
+      selectedFurnitureId: id,
+      selectedWallKey: null,
+      selectedFloorRoomId: null,
+    }),
 
   setWallMaterial: (wallKey, assignment) =>
     set((s) => ({
@@ -279,5 +303,25 @@ export const useRoomStore = create<EditorStore>((set) => ({
         else next[wallKey] = rest;
       }
       return { wallMaterials: next };
+    }),
+
+  // ── Floor ──────────────────────────────────────────────────────────────────
+  setSelectedFloor: (roomId) =>
+    set({
+      selectedFloorRoomId: roomId,
+      selectedWallKey: null,
+      selectedFurnitureId: null,
+    }),
+
+  setFloorMaterial: (roomId, material) =>
+    set((s) => ({
+      floorMaterials: { ...s.floorMaterials, [roomId]: material },
+    })),
+
+  clearFloorMaterial: (roomId) =>
+    set((s) => {
+      const next = { ...s.floorMaterials };
+      delete next[roomId];
+      return { floorMaterials: next };
     }),
 }));

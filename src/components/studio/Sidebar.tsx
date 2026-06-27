@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useRoomStore, WallColor } from '../../lib/store/room-store'
+import { useRoomStore, WallColor, MaterialRef } from '../../lib/store/room-store'
 import { Layers, Palette, Sofa, X, Loader2 } from 'lucide-react'
 
 const BASE = 'https://interior-materials-api.onrender.com'
@@ -30,13 +30,16 @@ export default function Sidebar() {
     addFurniture, furniture, removeFurniture,
     selectedFurnitureId, viewMode,
     selectedWallKey, wallMaterials,
-    setWallColor, clearWallColor,
+    setWallMaterial, clearWallMaterial,
+    selectedFloorRoomId, floorMaterials, setFloorMaterial, clearFloorMaterial,
     rooms,
   } = useRoomStore()
 
   const [tab, setTab] = useState<Tab>('walls')
   const [wallColors, setWallColors] = useState<WallColor[]>([])
   const [loadingColors, setLoadingColors] = useState(false)
+  const [wallpapers, setWallpapers] = useState<MaterialRef[]>([])
+  const [floorList, setFloorList] = useState<MaterialRef[]>([])
 
   useEffect(() => {
     setLoadingColors(true)
@@ -47,6 +50,23 @@ export default function Sidebar() {
       })
       .catch(() => {})
       .finally(() => setLoadingColors(false))
+
+    // შპალერი (კედლის tab)
+    fetch(`${BASE}/materials?category=wallpaper&limit=50`)
+      .then(r => r.json())
+      .then(d => setWallpapers((d.items ?? []).filter((m: MaterialRef) => m.image)))
+      .catch(() => {})
+
+    // იატაკის მასალები — ფილა + ლამინატი (ASCII slug-ები საიმედო matching-ისთვის)
+    Promise.all([
+      fetch(`${BASE}/materials?category=iatakis-da-kedlis-filebi&limit=24`).then(r => r.json()),
+      fetch(`${BASE}/materials?category=floor-coverings/laminate-flooring&limit=24`).then(r => r.json()),
+    ])
+      .then(([a, b]) => {
+        const items = [...(a.items ?? []), ...(b.items ?? [])].filter((m: MaterialRef) => m.image)
+        setFloorList(items)
+      })
+      .catch(() => {})
   }, [])
 
   function handleAddFurniture(item: typeof FURNITURE_CATALOG[0]) {
@@ -70,6 +90,8 @@ export default function Sidebar() {
 
   const currentAssignment = selectedWallKey ? wallMaterials[selectedWallKey] : null
   const currentColor = currentAssignment?.color ?? null
+  const currentMaterial = currentAssignment?.material ?? null
+  const currentFloor = selectedFloorRoomId ? floorMaterials[selectedFloorRoomId] : null
 
   if (viewMode === '2d') return null
 
@@ -102,22 +124,28 @@ export default function Sidebar() {
               <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs font-semibold text-brand">კედელი მონიშნულია</p>
-                  {currentColor && (
+                  {(currentColor || currentMaterial) && (
                     <button
-                      onClick={() => clearWallColor(selectedWallKey)}
+                      onClick={() => clearWallMaterial(selectedWallKey)}
                       className="text-xs text-gray-400 hover:text-red-400 transition-colors">
                       გასუფთავება
                     </button>
                   )}
                 </div>
-                {currentColor ? (
+                {currentMaterial ? (
+                  <div className="flex items-center gap-2">
+                    <img src={currentMaterial.image} alt=""
+                      className="w-7 h-7 rounded-lg border border-gray-200 shadow-sm flex-shrink-0 object-cover" />
+                    <span className="text-xs text-gray-700 truncate">{currentMaterial.name}</span>
+                  </div>
+                ) : currentColor ? (
                   <div className="flex items-center gap-2">
                     <div className="w-7 h-7 rounded-lg border border-gray-200 shadow-sm flex-shrink-0"
                       style={{ background: currentColor.color }} />
                     <span className="text-xs text-gray-700">{currentColor.name}</span>
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-400">ქვემოდან აირჩიე ფერი</p>
+                  <p className="text-xs text-gray-400">ქვემოდან აირჩიე ფერი ან შპალერი</p>
                 )}
               </div>
             ) : (
@@ -148,7 +176,7 @@ export default function Sidebar() {
                           key={c.id}
                           title={c.name}
                           disabled={!selectedWallKey}
-                          onClick={() => selectedWallKey && setWallColor(selectedWallKey, c)}
+                          onClick={() => selectedWallKey && setWallMaterial(selectedWallKey, { color: c })}
                           className={`relative aspect-square rounded-lg border-2 transition-all
                             ${isActive
                               ? 'border-brand scale-110 shadow-md'
@@ -175,7 +203,7 @@ export default function Sidebar() {
                         <button
                           key={c.id}
                           disabled={!selectedWallKey}
-                          onClick={() => selectedWallKey && setWallColor(selectedWallKey, c)}
+                          onClick={() => selectedWallKey && setWallMaterial(selectedWallKey, { color: c })}
                           className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors text-left
                             ${isActive ? 'bg-brand/10 text-brand font-medium' : 'hover:bg-gray-50 text-gray-600'}
                             ${!selectedWallKey ? 'opacity-40 cursor-not-allowed' : ''}`}>
@@ -188,6 +216,40 @@ export default function Sidebar() {
                     })}
                   </div>
                 </>
+              )}
+            </div>
+
+            {/* Wallpaper */}
+            <div className="pt-3 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                შპალერი
+              </p>
+              {wallpapers.length === 0 ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 size={16} className="animate-spin text-gray-300" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+                  {wallpapers.map(w => {
+                    const isActive = currentMaterial?.id === w.id
+                    return (
+                      <button
+                        key={w.id}
+                        title={w.name}
+                        disabled={!selectedWallKey}
+                        onClick={() => selectedWallKey && setWallMaterial(selectedWallKey, { material: w })}
+                        className={`relative aspect-square rounded-lg border-2 overflow-hidden transition-all
+                          ${isActive ? 'border-brand scale-105 shadow-md' : 'border-gray-200 hover:border-gray-400'}
+                          ${!selectedWallKey ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <img src={w.image} alt={w.name} loading="lazy"
+                          className="w-full h-full object-cover" />
+                        {isActive && (
+                          <span className="absolute inset-0 flex items-center justify-center bg-brand/30 text-white text-sm font-bold">✓</span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
               )}
             </div>
 
@@ -209,22 +271,92 @@ export default function Sidebar() {
 
         {/* ── FLOOR ── */}
         {tab === 'floor' && (
-          <div className="space-y-3">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">იატაკის მასალა</p>
-            {FLOORS.map(f => (
-              <button key={f.id}
-                onClick={() => setMaterials({ floorTexture: f.id })}
-                className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left
-                  ${materials.floorTexture === f.id ? 'border-brand bg-green-50' : 'border-gray-100 hover:border-gray-200'}`}>
-                <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-lg">
-                  {f.icon}
+          <div className="space-y-4">
+
+            {/* Selected floor status */}
+            {selectedFloorRoomId ? (
+              <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-brand">იატაკი მონიშნულია</p>
+                  {currentFloor && (
+                    <button
+                      onClick={() => clearFloorMaterial(selectedFloorRoomId)}
+                      className="text-xs text-gray-400 hover:text-red-400 transition-colors">
+                      გასუფთავება
+                    </button>
+                  )}
                 </div>
-                <span className="text-sm font-medium text-gray-700">{f.label}</span>
-                {materials.floorTexture === f.id && (
-                  <span className="ml-auto text-brand text-xs font-medium">✓</span>
+                {currentFloor ? (
+                  <div className="flex items-center gap-2">
+                    <img src={currentFloor.image} alt=""
+                      className="w-7 h-7 rounded-lg border border-gray-200 shadow-sm flex-shrink-0 object-cover" />
+                    <span className="text-xs text-gray-700 truncate">{currentFloor.name}</span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400">ქვემოდან აირჩიე მასალა</p>
                 )}
-              </button>
-            ))}
+              </div>
+            ) : (
+              <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-3 text-center">
+                <p className="text-xs text-gray-400">3D-ში კლიკე იატაკზე</p>
+                <p className="text-xs text-gray-300 mt-0.5">შემდეგ აირჩიე მასალა</p>
+              </div>
+            )}
+
+            {/* API floor materials */}
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                ფილა / ლამინატი
+              </p>
+              {floorList.length === 0 ? (
+                <div className="flex items-center justify-center py-4">
+                  <Loader2 size={16} className="animate-spin text-gray-300" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2 max-h-72 overflow-y-auto">
+                  {floorList.map(m => {
+                    const isActive = currentFloor?.id === m.id
+                    return (
+                      <button
+                        key={m.id}
+                        title={m.name}
+                        disabled={!selectedFloorRoomId}
+                        onClick={() => selectedFloorRoomId && setFloorMaterial(selectedFloorRoomId, m)}
+                        className={`relative aspect-square rounded-lg border-2 overflow-hidden transition-all
+                          ${isActive ? 'border-brand scale-105 shadow-md' : 'border-gray-200 hover:border-gray-400'}
+                          ${!selectedFloorRoomId ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <img src={m.image} alt={m.name} loading="lazy"
+                          className="w-full h-full object-cover" />
+                        {isActive && (
+                          <span className="absolute inset-0 flex items-center justify-center bg-brand/30 text-white text-sm font-bold">✓</span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Procedural textures (global default) */}
+            <div className="pt-3 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                ნაგულისხმევი ტექსტურა
+              </p>
+              {FLOORS.map(f => (
+                <button key={f.id}
+                  onClick={() => setMaterials({ floorTexture: f.id })}
+                  className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left mb-2
+                    ${materials.floorTexture === f.id ? 'border-brand bg-green-50' : 'border-gray-100 hover:border-gray-200'}`}>
+                  <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-lg">
+                    {f.icon}
+                  </div>
+                  <span className="text-sm font-medium text-gray-700">{f.label}</span>
+                  {materials.floorTexture === f.id && (
+                    <span className="ml-auto text-brand text-xs font-medium">✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
