@@ -9,7 +9,6 @@ body {
   font-family: 'Inter', system-ui, sans-serif;
   background: #F8F7F4;
   color: #1a1a1a;
-  overflow: hidden;
 }
 
 ::-webkit-scrollbar { width: 4px; }

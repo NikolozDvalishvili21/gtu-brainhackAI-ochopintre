@@ -3,7 +3,7 @@ import { useRef, useMemo } from 'react'
 import { Canvas, useFrame, ThreeEvent } from '@react-three/fiber'
 import { OrbitControls, Environment, Text } from '@react-three/drei'
 import * as THREE from 'three'
-import { useRoomStore, Furniture } from '../store'
+import { useRoomStore, Furniture } from '@/lib/store/room-store'
 
 // Texture generator (procedural)
 function useTexture(type: string, color: string) {

@@ -1,6 +1,6 @@
 'use client'
 import { useRef, useEffect, useState } from 'react'
-import { useRoomStore } from '../store'
+import { useRoomStore } from '@/lib/store/room-store'
 
 const SCALE = 60 // px per meter
 const GRID = 0.5  // 0.5m grid

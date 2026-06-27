@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { useRoomStore, Furniture } from '../store'
+import { useRoomStore, Furniture } from '@/lib/store/room-store'
 import { Armchair, Sofa, BedDouble, TreePine, UtensilsCrossed, Palette, Layers, X } from 'lucide-react'
 
 const WALLPAPERS = [
