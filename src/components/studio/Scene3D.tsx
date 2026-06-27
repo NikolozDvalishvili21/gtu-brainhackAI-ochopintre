@@ -1,385 +1,571 @@
-'use client'
-import { useRef, useMemo } from 'react'
-import { Canvas, useFrame, ThreeEvent } from '@react-three/fiber'
-import { OrbitControls, Environment, Text } from '@react-three/drei'
-import * as THREE from 'three'
-import { useRoomStore, Furniture, type Door, type RoomShape, type WindowEl } from '@/lib/store/room-store'
+"use client";
+import { useRef, useMemo, useState, useEffect } from "react";
+import { Canvas, useFrame, ThreeEvent } from "@react-three/fiber";
+import { OrbitControls, Environment } from "@react-three/drei";
+import * as THREE from "three";
+import {
+  useRoomStore,
+  Furniture,
+  RoomShape,
+  Door,
+} from "../../lib/store/room-store";
 
 const WALL_H = 2.8;
-const WALL_THICKNESS = 0.15;
+const T = 0.14;
+const DOOR_H = 2.1;
+const WIN_SILL = 0.9;
+const WIN_H = 1.2;
 
-// ─── Textures ────────────────────────────────────────────────────────────────
+// ─── Wall key (must match buildAllWalls normalisation) ────────────────────────
 
-function useProceduralTexture(type: string, color: string) {
-  return useMemo(() => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext("2d")!;
-
-    if (type === "parquet") {
-      ctx.fillStyle = "#C8A882";
-      ctx.fillRect(0, 0, 512, 512);
-      ctx.strokeStyle = "#A0825A";
-      ctx.lineWidth = 2;
-      for (let i = 0; i < 8; i++) {
-        for (let j = 0; j < 4; j++) {
-          const x = i * 64,
-            y = j * 128;
-          ctx.strokeRect(x + 2, y + 2, 60, 124);
-          ctx.strokeStyle = "#B8926A";
-          ctx.lineWidth = 0.5;
-          for (let g = 0; g < 5; g++) {
-            ctx.beginPath();
-            ctx.moveTo(x + 8 + g * 10, y + 4);
-            ctx.lineTo(x + 8 + g * 10, y + 122);
-            ctx.stroke();
-          }
-          ctx.strokeStyle = "#A0825A";
-          ctx.lineWidth = 2;
-        }
-      }
-    } else if (type === "tile") {
-      ctx.fillStyle = "#E8E4DF";
-      ctx.fillRect(0, 0, 512, 512);
-      ctx.strokeStyle = "#C4BDB6";
-      ctx.lineWidth = 3;
-      for (let i = 0; i < 8; i++)
-        for (let j = 0; j < 8; j++)
-          ctx.strokeRect(i * 64 + 2, j * 64 + 2, 60, 60);
-    } else if (type === "wallpaper-stripe") {
-      ctx.fillStyle = color || "#F5F0EB";
-      ctx.fillRect(0, 0, 512, 512);
-      ctx.fillStyle = "#00000015";
-      for (let i = 0; i < 16; i += 2) ctx.fillRect(i * 32, 0, 32, 512);
-    } else if (type === "wallpaper-dots") {
-      ctx.fillStyle = color || "#F5F0EB";
-      ctx.fillRect(0, 0, 512, 512);
-      ctx.fillStyle = "#00000020";
-      for (let i = 0; i < 16; i++)
-        for (let j = 0; j < 16; j++) {
-          ctx.beginPath();
-          ctx.arc(i * 32 + 16, j * 32 + 16, 4, 0, Math.PI * 2);
-          ctx.fill();
-        }
-    } else {
-      ctx.fillStyle = color || "#F5F0EB";
-      ctx.fillRect(0, 0, 512, 512);
-    }
-
-    const tex = new THREE.CanvasTexture(canvas);
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(3, 3);
-    return tex;
-  }, [type, color]);
+function makeWallKey(x1: number, z1: number, x2: number, z2: number) {
+  return `${Math.round(x1 * 1000)},${Math.round(z1 * 1000)},${Math.round(x2 * 1000)},${Math.round(z2 * 1000)}`;
 }
 
-// ─── Single Room in 3D ───────────────────────────────────────────────────────
+// ─── Procedural textures ──────────────────────────────────────────────────────
 
-/**
- * 2D coordinate system:  x → right,  y → down
- * 3D coordinate system:  x → right,  y → up,  z → "forward" (screen toward viewer)
- *
- * Mapping:  3D_x = 2D_x   |   3D_z = 2D_y
- * Origin of each room is its top-left corner in 2D.
- * In 3D we centre the room so the pivot is at room centre (easier math).
- */
-function RoomMesh({
-  room,
-  doors,
-  windows,
-}: {
-  room: RoomShape;
-  doors: Door[];
-  windows: WindowEl[];
-}) {
-  const { materials } = useRoomStore();
-  const wallTex = useProceduralTexture(
-    materials.wallTexture,
-    materials.wallColor,
-  );
-  const floorTex = useProceduralTexture(materials.floorTexture, "#C8A882");
+function makeTexture(type: string, color: string): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext("2d")!;
 
-  const W = room.width; // 3D x extent
-  const D = room.height; // 3D z extent  (2D "height" = depth in 3D)
-  const H = WALL_H;
-  const T = WALL_THICKNESS;
-
-  // Centre of room in 3D world space
-  // 2D origin = top-left = (room.x, room.y)
-  // 3D centre  = (room.x + W/2, 0, room.y + D/2)
-  const cx = room.x + W / 2;
-  const cz = room.y + D / 2;
-
-  const wallMat = new THREE.MeshStandardMaterial({
-    map: wallTex.clone(),
-    roughness: 0.9,
-  });
-  const floorMat = new THREE.MeshStandardMaterial({
-    map: floorTex.clone(),
-    roughness: 0.8,
-  });
-  const ceilMat = new THREE.MeshStandardMaterial({
-    color: materials.ceilingColor,
-    roughness: 0.95,
-  });
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: "#C8E6F5",
-    transparent: true,
-    opacity: 0.35,
-    roughness: 0.05,
-    metalness: 0.1,
-  });
-  const frameMat = new THREE.MeshStandardMaterial({
-    color: "#DEB887",
-    roughness: 0.8,
-  });
-
-  // Which walls have doors/windows (to cut openings)
-  // We render each wall as a set of segments around openings.
-  // For simplicity we render door openings as a gap + arc overhead, windows as glass panel.
-
-  // Helper: build wall segments along X axis (for top/bottom walls) or Z axis (for left/right)
-  // Returns mesh array
-
-  const wallColor = materials.wallColor;
-
-  // Doors on each side
-  const doorsOnSide = (side: Door["wallSide"]) =>
-    doors.filter((d) => d.roomId === room.id && d.wallSide === side);
-  const windowsOnSide = (side: Door["wallSide"]) =>
-    windows.filter(
-      (w: { roomId: string; wallSide: string }) =>
-        w.roomId === room.id && w.wallSide === side,
-    );
-
-  /**
-   * Build a wall along a 1D span [0 … length].
-   * Openings: array of { start, width, type: 'door'|'window' }
-   * Returns a list of { x_offset, seg_width, height, y_offset } for solid segments
-   * plus opening descriptors.
-   */
-  function buildWallSegments(
-    length: number,
-    openings: Array<{ start: number; width: number; type: "door" | "window" }>,
-  ) {
-    // Sort openings
-    const sorted = [...openings].sort((a, b) => a.start - b.start);
-    const solid: Array<{
-      start: number;
-      width: number;
-      height: number;
-      yBase: number;
-    }> = [];
-    const openingMeshes: Array<{
-      start: number;
-      width: number;
-      type: "door" | "window";
-    }> = [];
-
-    let cursor = 0;
-    for (const op of sorted) {
-      const gapStart = Math.max(cursor, op.start);
-      if (gapStart > cursor) {
-        solid.push({
-          start: cursor,
-          width: gapStart - cursor,
-          height: H,
-          yBase: 0,
-        });
-      }
-      if (op.type === "door") {
-        // below opening: nothing; above opening: lintel
-        const doorH = 2.1;
-        if (H - doorH > 0.05) {
-          solid.push({
-            start: op.start,
-            width: op.width,
-            height: H - doorH,
-            yBase: doorH,
-          });
+  if (type === "parquet") {
+    ctx.fillStyle = "#C8A882";
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.strokeStyle = "#A0825A";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i++)
+      for (let j = 0; j < 4; j++) {
+        const x = i * 64,
+          y = j * 128;
+        ctx.strokeRect(x + 2, y + 2, 60, 124);
+        ctx.strokeStyle = "#B8926A";
+        ctx.lineWidth = 0.5;
+        for (let g = 0; g < 5; g++) {
+          ctx.beginPath();
+          ctx.moveTo(x + 8 + g * 10, y + 4);
+          ctx.lineTo(x + 8 + g * 10, y + 122);
+          ctx.stroke();
         }
-      } else {
-        // window: solid below sill, glass in middle, solid above
-        const sillH = 0.9,
-          winH = 1.2;
-        solid.push({
-          start: op.start,
-          width: op.width,
-          height: sillH,
-          yBase: 0,
-        });
-        const topH = H - sillH - winH;
-        if (topH > 0.05)
-          solid.push({
-            start: op.start,
-            width: op.width,
-            height: topH,
-            yBase: sillH + winH,
-          });
+        ctx.strokeStyle = "#A0825A";
+        ctx.lineWidth = 2;
       }
-      openingMeshes.push(op);
-      cursor = op.start + op.width;
+  } else if (type === "tile") {
+    ctx.fillStyle = "#E8E4DF";
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.strokeStyle = "#C4BDB6";
+    ctx.lineWidth = 3;
+    for (let i = 0; i < 8; i++)
+      for (let j = 0; j < 8; j++)
+        ctx.strokeRect(i * 64 + 2, j * 64 + 2, 60, 60);
+  } else if (type === "wallpaper-stripe") {
+    ctx.fillStyle = color || "#F5F0EB";
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.fillStyle = "#00000015";
+    for (let i = 0; i < 16; i += 2) ctx.fillRect(i * 32, 0, 32, 512);
+  } else if (type === "wallpaper-dots") {
+    ctx.fillStyle = color || "#F5F0EB";
+    ctx.fillRect(0, 0, 512, 512);
+    ctx.fillStyle = "#00000020";
+    for (let i = 0; i < 16; i++)
+      for (let j = 0; j < 16; j++) {
+        ctx.beginPath();
+        ctx.arc(i * 32 + 16, j * 32 + 16, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+  } else {
+    ctx.fillStyle = color || "#F5F0EB";
+    ctx.fillRect(0, 0, 512, 512);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(4, 4);
+  return tex;
+}
+
+function useProceduralTexture(type: string, color: string) {
+  return useMemo(() => makeTexture(type, color), [type, color]);
+}
+
+// ─── Image URL → THREE.Texture ────────────────────────────────────────────────
+
+function useImageTexture(url: string | null): THREE.Texture | null {
+  const [tex, setTex] = useState<THREE.Texture | null>(null);
+
+  useEffect(() => {
+    if (!url) {
+      setTex(null);
+      return;
     }
-    if (cursor < length)
-      solid.push({
-        start: cursor,
-        width: length - cursor,
-        height: H,
-        yBase: 0,
-      });
+    const loader = new THREE.TextureLoader();
+    let cancelled = false;
 
-    return { solid, openings: openingMeshes };
-  }
-
-  // ── Wall builder renders meshes for one wall ──────────────────────────────
-  // axis: 'x' → wall runs along X (top/bottom walls); 'z' → wall runs along Z (left/right walls)
-  // wallZ / wallX: fixed coordinate of the wall plane
-  // flip: mirror offset direction
-
-  function WallMeshes({
-    axis,
-    wallPos,
-    length,
-    openings: ops,
-    rotY,
-  }: {
-    axis: "x" | "z";
-    wallPos: [number, number, number]; // centre of the full wall (no openings)
-    length: number;
-    openings: Array<{ start: number; width: number; type: "door" | "window" }>;
-    rotY: number;
-  }) {
-    const { solid, openings: opList } = buildWallSegments(length, ops);
-
-    return (
-      <group>
-        {/* Solid segments */}
-        {solid.map((seg, i) => {
-          // seg.start measured from wall-left-end; centre of segment in wall-local coords:
-          const localCentre = seg.start + seg.width / 2 - length / 2;
-          const pos: [number, number, number] =
-            axis === "x"
-              ? [
-                  wallPos[0] + localCentre,
-                  seg.yBase + seg.height / 2,
-                  wallPos[2],
-                ]
-              : [
-                  wallPos[0],
-                  seg.yBase + seg.height / 2,
-                  wallPos[2] + localCentre,
-                ];
-
-          return (
-            <mesh key={i} position={pos} castShadow receiveShadow>
-              <boxGeometry
-                args={
-                  axis === "x"
-                    ? [seg.width, seg.height, T]
-                    : [T, seg.height, seg.width]
-                }
-              />
-              <primitive object={wallMat} attach="material" />
-            </mesh>
-          );
-        })}
-
-        {/* Window glass panels */}
-        {opList
-          .filter((op) => op.type === "window")
-          .map((op, i) => {
-            const localCentre = op.start + op.width / 2 - length / 2;
-            const sillH = 0.9,
-              winH = 1.2;
-            const pos: [number, number, number] =
-              axis === "x"
-                ? [wallPos[0] + localCentre, sillH + winH / 2, wallPos[2]]
-                : [wallPos[0], sillH + winH / 2, wallPos[2] + localCentre];
-
-            return (
-              <group key={`win-${i}`}>
-                <mesh position={pos} castShadow>
-                  <boxGeometry
-                    args={
-                      axis === "x"
-                        ? [op.width, winH, T * 0.3]
-                        : [T * 0.3, winH, op.width]
-                    }
-                  />
-                  <primitive object={glassMat} attach="material" />
-                </mesh>
-                {/* Frame */}
-                <mesh position={pos}>
-                  <boxGeometry
-                    args={
-                      axis === "x"
-                        ? [op.width + 0.04, winH + 0.04, T * 0.4]
-                        : [T * 0.4, winH + 0.04, op.width + 0.04]
-                    }
-                  />
-                  <primitive object={frameMat} attach="material" />
-                </mesh>
-              </group>
-            );
-          })}
-      </group>
+    loader.load(
+      url,
+      (t) => {
+        if (cancelled) return;
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.repeat.set(2, 2);
+        setTex(t);
+      },
+      undefined,
+      () => {
+        // on error — silently ignore, keep existing texture
+      },
     );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  return tex;
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type WallSide = "top" | "bottom" | "left" | "right";
+
+interface Opening {
+  type: "door" | "window";
+  start: number;
+  width: number;
+}
+
+interface WallEdge {
+  x1: number;
+  z1: number;
+  x2: number;
+  z2: number;
+  length: number;
+  axis: "x" | "z";
+  openings: Opening[];
+}
+
+// ─── Shared wall deduplication ────────────────────────────────────────────────
+
+function buildAllWalls(
+  rooms: RoomShape[],
+  doors: Door[],
+  windows: Array<{
+    id: string;
+    roomId: string;
+    wallSide: WallSide;
+    offset: number;
+    width: number;
+  }>,
+): WallEdge[] {
+  const edgeMap = new Map<string, WallEdge>();
+
+  const edgeKey = (x1: number, z1: number, x2: number, z2: number) =>
+    makeWallKey(x1, z1, x2, z2);
+
+  for (const room of rooms) {
+    const { x, y: rz, width: W, height: D } = room;
+
+    const edges: Array<{
+      side: WallSide;
+      x1: number;
+      z1: number;
+      x2: number;
+      z2: number;
+      axis: "x" | "z";
+    }> = [
+      { side: "top", x1: x, z1: rz, x2: x + W, z2: rz, axis: "x" },
+      { side: "bottom", x1: x, z1: rz + D, x2: x + W, z2: rz + D, axis: "x" },
+      { side: "left", x1: x, z1: rz, x2: x, z2: rz + D, axis: "z" },
+      { side: "right", x1: x + W, z1: rz, x2: x + W, z2: rz + D, axis: "z" },
+    ];
+
+    for (const e of edges) {
+      const key = edgeKey(e.x1, e.z1, e.x2, e.z2);
+
+      const doorsHere = doors
+        .filter((d) => d.roomId === room.id && d.wallSide === e.side)
+        .map((d) => ({
+          type: "door" as const,
+          start: d.offset,
+          width: d.width,
+        }));
+      const winsHere = windows
+        .filter((w) => w.roomId === room.id && w.wallSide === e.side)
+        .map((w) => ({
+          type: "window" as const,
+          start: w.offset,
+          width: w.width,
+        }));
+
+      if (!edgeMap.has(key)) {
+        edgeMap.set(key, {
+          x1: e.x1,
+          z1: e.z1,
+          x2: e.x2,
+          z2: e.z2,
+          length:
+            e.axis === "x" ? Math.abs(e.x2 - e.x1) : Math.abs(e.z2 - e.z1),
+          axis: e.axis,
+          openings: [...doorsHere, ...winsHere],
+        });
+      } else {
+        edgeMap.get(key)!.openings.push(...doorsHere, ...winsHere);
+      }
+    }
   }
 
-  // ── Gather openings per wall ─────────────────────────────────────────────
-  const topOpenings = [
-    ...doorsOnSide("top").map((d) => ({
-      start: d.offset,
-      width: d.width,
-      type: "door" as const,
-    })),
-    ...windowsOnSide("top").map((w) => ({
-      start: w.offset,
-      width: w.width,
-      type: "window" as const,
-    })),
-  ];
-  const bottomOpenings = [
-    ...doorsOnSide("bottom").map((d) => ({
-      start: d.offset,
-      width: d.width,
-      type: "door" as const,
-    })),
-    ...windowsOnSide("bottom").map((w) => ({
-      start: w.offset,
-      width: w.width,
-      type: "window" as const,
-    })),
-  ];
-  const leftOpenings = [
-    ...doorsOnSide("left").map((d) => ({
-      start: d.offset,
-      width: d.width,
-      type: "door" as const,
-    })),
-    ...windowsOnSide("left").map((w) => ({
-      start: w.offset,
-      width: w.width,
-      type: "window" as const,
-    })),
-  ];
-  const rightOpenings = [
-    ...doorsOnSide("right").map((d) => ({
-      start: d.offset,
-      width: d.width,
-      type: "door" as const,
-    })),
-    ...windowsOnSide("right").map((w) => ({
-      start: w.offset,
-      width: w.width,
-      type: "window" as const,
-    })),
-  ];
+  return Array.from(edgeMap.values());
+}
+
+// ─── Wall segment splitter ────────────────────────────────────────────────────
+
+function splitWall(length: number, openings: Opening[]) {
+  const sorted = [...openings].sort((a, b) => a.start - b.start);
+  const solid: Array<{ start: number; len: number; yBase: number; h: number }> =
+    [];
+
+  let cursor = 0;
+  for (const op of sorted) {
+    const opStart = Math.max(cursor, op.start);
+    if (opStart > cursor)
+      solid.push({ start: cursor, len: opStart - cursor, yBase: 0, h: WALL_H });
+
+    if (op.type === "door") {
+      const lintelH = WALL_H - DOOR_H;
+      if (lintelH > 0.02)
+        solid.push({
+          start: opStart,
+          len: op.width,
+          yBase: DOOR_H,
+          h: lintelH,
+        });
+    } else {
+      solid.push({ start: opStart, len: op.width, yBase: 0, h: WIN_SILL });
+      const headerH = WALL_H - WIN_SILL - WIN_H;
+      if (headerH > 0.02)
+        solid.push({
+          start: opStart,
+          len: op.width,
+          yBase: WIN_SILL + WIN_H,
+          h: headerH,
+        });
+    }
+
+    cursor = opStart + op.width;
+  }
+  if (cursor < length)
+    solid.push({ start: cursor, len: length - cursor, yBase: 0, h: WALL_H });
+
+  return { solid, openings: sorted };
+}
+
+// ─── Single wall renderer ──────────────────────────────────────────────────────
+
+interface WallMeshProps {
+  edge: WallEdge;
+  wKey: string;
+  wallMat: THREE.Material;
+  glassMat: THREE.Material;
+  frameMat: THREE.Material;
+  doorMat: THREE.Material;
+  isSelected: boolean;
+  assignedImageUrl: string | null;
+  onSelect: (key: string) => void;
+}
+
+function WallMesh({
+  edge,
+  wKey,
+  wallMat,
+  glassMat,
+  frameMat,
+  doorMat,
+  isSelected,
+  assignedImageUrl,
+  onSelect,
+}: WallMeshProps) {
+  const { solid, openings } = splitWall(edge.length, edge.openings);
+
+  // Dynamic texture from assigned material image
+  const assignedTex = useImageTexture(assignedImageUrl);
+
+  const activeMat = useMemo(() => {
+    if (assignedTex) {
+      return new THREE.MeshStandardMaterial({
+        map: assignedTex,
+        roughness: 0.85,
+      });
+    }
+    return wallMat;
+  }, [assignedTex, wallMat]);
+
+  const segPos = (
+    start: number,
+    len: number,
+    yBase: number,
+    h: number,
+  ): [number, number, number] => {
+    const localC = start + len / 2;
+    if (edge.axis === "x") return [edge.x1 + localC, yBase + h / 2, edge.z1];
+    else return [edge.x1, yBase + h / 2, edge.z1 + localC];
+  };
+
+  const segGeo = (len: number, h: number) =>
+    edge.axis === "x" ? (
+      <boxGeometry args={[len, h, T]} />
+    ) : (
+      <boxGeometry args={[T, h, len]} />
+    );
+
+  const handleClick = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    onSelect(wKey);
+  };
 
   return (
     <group>
-      {/* Floor */}
+      {/* ── Invisible full-wall click target (always present) ── */}
+      {/* visible=false keeps it hidden but raycast still works in R3F */}
+      {/* Thickness 0.5 so ray hits reliably from any camera angle    */}
+      <mesh position={segPos(0, edge.length, 0, WALL_H)} onClick={handleClick}>
+        {edge.axis === "x" ? (
+          <boxGeometry args={[edge.length, WALL_H, 0.5]} />
+        ) : (
+          <boxGeometry args={[0.5, WALL_H, edge.length]} />
+        )}
+        <meshBasicMaterial visible={false} />
+      </mesh>
+
+      {/* Selection highlight — full wall extent, semi-transparent */}
+      {isSelected && (
+        <mesh position={segPos(0, edge.length, 0, WALL_H)}>
+          {segGeo(edge.length, WALL_H)}
+          <meshBasicMaterial color="#2D6A4F" transparent opacity={0.15} />
+        </mesh>
+      )}
+
+      {/* Solid wall segments */}
+      {solid.map((s, i) => (
+        <mesh
+          key={i}
+          position={segPos(s.start, s.len, s.yBase, s.h)}
+          castShadow
+          receiveShadow
+        >
+          {segGeo(s.len, s.h)}
+          <primitive object={activeMat} attach="material" />
+        </mesh>
+      ))}
+
+      {/* Door openings: frame + door panel */}
+      {openings
+        .filter((op) => op.type === "door")
+        .map((op, i) => {
+          const localC = op.start + op.width / 2;
+          const cx = edge.axis === "x" ? edge.x1 + localC : edge.x1;
+          const cz = edge.axis === "x" ? edge.z1 : edge.z1 + localC;
+          const FW = 0.06;
+          const FD = T + 0.02;
+
+          return (
+            <group key={`door-${i}`}>
+              <mesh
+                position={
+                  edge.axis === "x"
+                    ? [edge.x1 + op.start + FW / 2, DOOR_H / 2, cz]
+                    : [cx, DOOR_H / 2, edge.z1 + op.start + FW / 2]
+                }
+                castShadow
+              >
+                {edge.axis === "x" ? (
+                  <boxGeometry args={[FW, DOOR_H, FD]} />
+                ) : (
+                  <boxGeometry args={[FD, DOOR_H, FW]} />
+                )}
+                <primitive object={frameMat} attach="material" />
+              </mesh>
+              <mesh
+                position={
+                  edge.axis === "x"
+                    ? [edge.x1 + op.start + op.width - FW / 2, DOOR_H / 2, cz]
+                    : [cx, DOOR_H / 2, edge.z1 + op.start + op.width - FW / 2]
+                }
+                castShadow
+              >
+                {edge.axis === "x" ? (
+                  <boxGeometry args={[FW, DOOR_H, FD]} />
+                ) : (
+                  <boxGeometry args={[FD, DOOR_H, FW]} />
+                )}
+                <primitive object={frameMat} attach="material" />
+              </mesh>
+              <mesh position={[cx, DOOR_H + FW / 2, cz]} castShadow>
+                {edge.axis === "x" ? (
+                  <boxGeometry args={[op.width, FW, FD]} />
+                ) : (
+                  <boxGeometry args={[FD, FW, op.width]} />
+                )}
+                <primitive object={frameMat} attach="material" />
+              </mesh>
+              <group
+                position={
+                  edge.axis === "x"
+                    ? [edge.x1 + op.start + FW, 0, cz]
+                    : [cx, 0, edge.z1 + op.start + FW]
+                }
+                rotation={[
+                  0,
+                  edge.axis === "x" ? -Math.PI / 9 : Math.PI / 2 - Math.PI / 9,
+                  0,
+                ]}
+              >
+                <mesh
+                  position={
+                    edge.axis === "x"
+                      ? [(op.width - FW) / 2, DOOR_H / 2, 0.03]
+                      : [0.03, DOOR_H / 2, (op.width - FW) / 2]
+                  }
+                  castShadow
+                >
+                  {edge.axis === "x" ? (
+                    <boxGeometry
+                      args={[op.width - FW * 2, DOOR_H - FW, 0.04]}
+                    />
+                  ) : (
+                    <boxGeometry
+                      args={[0.04, DOOR_H - FW, op.width - FW * 2]}
+                    />
+                  )}
+                  <primitive object={doorMat} attach="material" />
+                </mesh>
+                <mesh
+                  position={
+                    edge.axis === "x"
+                      ? [(op.width - FW) * 0.8, DOOR_H * 0.45, 0.06]
+                      : [0.06, DOOR_H * 0.45, (op.width - FW) * 0.8]
+                  }
+                >
+                  <sphereGeometry args={[0.025, 8, 8]} />
+                  <meshStandardMaterial
+                    color="#C0A060"
+                    metalness={0.8}
+                    roughness={0.2}
+                  />
+                </mesh>
+              </group>
+            </group>
+          );
+        })}
+
+      {/* Window openings */}
+      {openings
+        .filter((op) => op.type === "window")
+        .map((op, i) => {
+          const localC = op.start + op.width / 2;
+          const cx = edge.axis === "x" ? edge.x1 + localC : edge.x1;
+          const cz = edge.axis === "x" ? edge.z1 : edge.z1 + localC;
+          const winY = WIN_SILL + WIN_H / 2;
+          const FW = 0.05;
+          const FD = T + 0.01;
+
+          return (
+            <group key={`win-${i}`}>
+              <mesh position={[cx, WIN_SILL + FW / 2, cz]} castShadow>
+                {edge.axis === "x" ? (
+                  <boxGeometry args={[op.width + FW * 2, FW, FD]} />
+                ) : (
+                  <boxGeometry args={[FD, FW, op.width + FW * 2]} />
+                )}
+                <primitive object={frameMat} attach="material" />
+              </mesh>
+              <mesh position={[cx, WIN_SILL + WIN_H - FW / 2, cz]} castShadow>
+                {edge.axis === "x" ? (
+                  <boxGeometry args={[op.width + FW * 2, FW, FD]} />
+                ) : (
+                  <boxGeometry args={[FD, FW, op.width + FW * 2]} />
+                )}
+                <primitive object={frameMat} attach="material" />
+              </mesh>
+              <mesh
+                position={
+                  edge.axis === "x"
+                    ? [edge.x1 + op.start - FW / 2, winY, cz]
+                    : [cx, winY, edge.z1 + op.start - FW / 2]
+                }
+                castShadow
+              >
+                {edge.axis === "x" ? (
+                  <boxGeometry args={[FW, WIN_H, FD]} />
+                ) : (
+                  <boxGeometry args={[FD, WIN_H, FW]} />
+                )}
+                <primitive object={frameMat} attach="material" />
+              </mesh>
+              <mesh
+                position={
+                  edge.axis === "x"
+                    ? [edge.x1 + op.start + op.width + FW / 2, winY, cz]
+                    : [cx, winY, edge.z1 + op.start + op.width + FW / 2]
+                }
+                castShadow
+              >
+                {edge.axis === "x" ? (
+                  <boxGeometry args={[FW, WIN_H, FD]} />
+                ) : (
+                  <boxGeometry args={[FD, WIN_H, FW]} />
+                )}
+                <primitive object={frameMat} attach="material" />
+              </mesh>
+              <mesh position={[cx, winY, cz]}>
+                {edge.axis === "x" ? (
+                  <boxGeometry args={[FW * 0.7, WIN_H, FD]} />
+                ) : (
+                  <boxGeometry args={[FD, WIN_H, FW * 0.7]} />
+                )}
+                <primitive object={frameMat} attach="material" />
+              </mesh>
+              <mesh position={[cx, winY, cz]}>
+                {edge.axis === "x" ? (
+                  <boxGeometry args={[op.width - FW, WIN_H - FW, T * 0.25]} />
+                ) : (
+                  <boxGeometry args={[T * 0.25, WIN_H - FW, op.width - FW]} />
+                )}
+                <primitive object={glassMat} attach="material" />
+              </mesh>
+            </group>
+          );
+        })}
+    </group>
+  );
+}
+
+// ─── Floor & Ceiling per room ─────────────────────────────────────────────────
+
+function RoomSurfaces({ room }: { room: RoomShape }) {
+  const { materials } = useRoomStore();
+  const floorTex = useProceduralTexture(
+    materials.floorTexture || "parquet",
+    "#C8A882",
+  );
+  const ceilColor = materials.ceilingColor || "#F5F0EB";
+
+  const W = room.width,
+    D = room.height;
+  const cx = room.x + W / 2,
+    cz = room.y + D / 2;
+
+  const floorMat = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({ map: floorTex.clone(), roughness: 0.8 }),
+    [floorTex],
+  );
+  const ceilMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: ceilColor, roughness: 0.95 }),
+    [ceilColor],
+  );
+
+  return (
+    <group>
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
         position={[cx, 0.001, cz]}
@@ -388,77 +574,29 @@ function RoomMesh({
         <planeGeometry args={[W, D]} />
         <primitive object={floorMat} attach="material" />
       </mesh>
-
-      {/* Ceiling */}
-      <mesh rotation={[Math.PI / 2, 0, 0]} position={[cx, H, cz]}>
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[cx, WALL_H, cz]}>
         <planeGeometry args={[W, D]} />
         <primitive object={ceilMat} attach="material" />
       </mesh>
-
-      {/* Top wall  (2D top = z = room.y) */}
-      <WallMeshes
-        axis="x"
-        wallPos={[cx, 0, room.y]}
-        length={W}
-        openings={topOpenings}
-        rotY={0}
-      />
-
-      {/* Bottom wall (z = room.y + D) */}
-      <WallMeshes
-        axis="x"
-        wallPos={[cx, 0, room.y + D]}
-        length={W}
-        openings={bottomOpenings}
-        rotY={0}
-      />
-
-      {/* Left wall (x = room.x) */}
-      <WallMeshes
-        axis="z"
-        wallPos={[room.x, 0, cz]}
-        length={D}
-        openings={leftOpenings}
-        rotY={0}
-      />
-
-      {/* Right wall (x = room.x + W) */}
-      <WallMeshes
-        axis="z"
-        wallPos={[room.x + W, 0, cz]}
-        length={D}
-        openings={rightOpenings}
-        rotY={0}
-      />
-
-      {/* Room label floating above floor */}
-      <group position={[cx, 0.05, cz]} rotation={[-Math.PI / 2, 0, 0]}>
-        {/* We use a simple text approximation via a thin box — Text from drei needs font loading */}
-      </group>
     </group>
   );
 }
 
-// ─── Partitions ──────────────────────────────────────────────────────────────
+// ─── Partitions ───────────────────────────────────────────────────────────────
 
 function PartitionMesh({
   p,
+  wallMat,
 }: {
   p: { id: string; x1: number; y1: number; x2: number; y2: number };
+  wallMat: THREE.Material;
 }) {
-  const { materials } = useRoomStore();
-  const wallTex = useProceduralTexture(
-    materials.wallTexture,
-    materials.wallColor,
-  );
-
   const dx = p.x2 - p.x1,
     dz = p.y2 - p.y1;
   const length = Math.sqrt(dx * dx + dz * dz);
-  const angle = Math.atan2(dz, dx); // rotation around Y axis
-
-  const cx = (p.x1 + p.x2) / 2;
-  const cz = (p.y1 + p.y2) / 2;
+  const angle = Math.atan2(dz, dx);
+  const cx = (p.x1 + p.x2) / 2,
+    cz = (p.y1 + p.y2) / 2;
 
   return (
     <mesh
@@ -467,22 +605,27 @@ function PartitionMesh({
       castShadow
       receiveShadow
     >
-      <boxGeometry args={[length, WALL_H, WALL_THICKNESS]} />
-      <meshStandardMaterial map={wallTex} roughness={0.9} />
+      <boxGeometry args={[length, WALL_H, T]} />
+      <primitive object={wallMat} attach="material" />
     </mesh>
   );
 }
 
-// ─── Furniture (unchanged) ───────────────────────────────────────────────────
+// ─── Furniture ────────────────────────────────────────────────────────────────
 
 function FurnitureItem({ item }: { item: Furniture }) {
-  const { setSelected, selectedId, selectedType } = useRoomStore();
-  const isSelected = selectedType === 'furniture' && selectedId === item.id;
+  const { setSelectedFurniture, selectedFurnitureId } = useRoomStore();
+  const isSelected = selectedFurnitureId === item.id;
   const meshRef = useRef<THREE.Mesh>(null);
 
   useFrame(() => {
     if (meshRef.current && isSelected) meshRef.current.rotation.y += 0.005;
   });
+
+  const handleClick = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    setSelectedFurniture(item.id);
+  };
 
   const getFurnitureMesh = () => {
     switch (item.type) {
@@ -491,6 +634,7 @@ function FurnitureItem({ item }: { item: Furniture }) {
           <group
             position={[item.x, item.y, item.z]}
             rotation={[0, item.rotation, 0]}
+            onClick={handleClick}
           >
             <mesh position={[0, 0.2, 0]} castShadow>
               <boxGeometry args={[item.width, 0.4, item.depth]} />
@@ -517,6 +661,7 @@ function FurnitureItem({ item }: { item: Furniture }) {
           <group
             position={[item.x, item.y, item.z]}
             rotation={[0, item.rotation, 0]}
+            onClick={handleClick}
           >
             <mesh position={[0, item.height - 0.04, 0]} castShadow>
               <boxGeometry args={[item.width, 0.06, item.depth]} />
@@ -552,6 +697,7 @@ function FurnitureItem({ item }: { item: Furniture }) {
           <group
             position={[item.x, item.y, item.z]}
             rotation={[0, item.rotation, 0]}
+            onClick={handleClick}
           >
             <mesh position={[0, 0.45, 0]} castShadow>
               <boxGeometry args={[0.5, 0.06, 0.5]} />
@@ -579,6 +725,7 @@ function FurnitureItem({ item }: { item: Furniture }) {
           <group
             position={[item.x, item.y, item.z]}
             rotation={[0, item.rotation, 0]}
+            onClick={handleClick}
           >
             <mesh position={[0, 0.25, 0]} castShadow>
               <boxGeometry args={[item.width, 0.3, item.depth]} />
@@ -596,7 +743,7 @@ function FurnitureItem({ item }: { item: Furniture }) {
         );
       case "plant":
         return (
-          <group position={[item.x, item.y, item.z]}>
+          <group position={[item.x, item.y, item.z]} onClick={handleClick}>
             <mesh position={[0, 0.2, 0]}>
               <cylinderGeometry args={[0.15, 0.12, 0.4, 8]} />
               <meshStandardMaterial color="#7C5C42" roughness={0.9} />
@@ -616,10 +763,7 @@ function FurnitureItem({ item }: { item: Furniture }) {
           <mesh
             ref={meshRef}
             position={[item.x, item.y + item.height / 2, item.z]}
-            onClick={(e: ThreeEvent<MouseEvent>) => {
-              e.stopPropagation();
-              setSelected(item.id, 'furniture');
-            }}
+            onClick={handleClick}
             castShadow
           >
             <boxGeometry args={[item.width, item.height, item.depth]} />
@@ -630,12 +774,7 @@ function FurnitureItem({ item }: { item: Furniture }) {
   };
 
   return (
-    <group
-      onClick={(e: ThreeEvent<MouseEvent>) => {
-        e.stopPropagation();
-        setSelected(item.id, 'furniture');
-      }}
-    >
+    <group>
       {getFurnitureMesh()}
       {isSelected && (
         <mesh position={[item.x, 0.01, item.z]}>
@@ -653,30 +792,78 @@ function FurnitureItem({ item }: { item: Furniture }) {
   );
 }
 
-// ─── Ground plane ─────────────────────────────────────────────────────────────
+// ─── Ground ───────────────────────────────────────────────────────────────────
 
-function GroundPlane() {
+function Ground() {
   return (
     <mesh
       rotation={[-Math.PI / 2, 0, 0]}
-      position={[0, -0.002, 0]}
+      position={[0, -0.001, 0]}
       receiveShadow
     >
-      <planeGeometry args={[100, 100]} />
-      <meshStandardMaterial color="#E8E4DF" roughness={1} />
+      <planeGeometry args={[200, 200]} />
+      <meshStandardMaterial color="#D6D0C8" roughness={1} />
     </mesh>
   );
 }
 
-// ─── Scene ───────────────────────────────────────────────────────────────────
+// ─── Scene ────────────────────────────────────────────────────────────────────
 
 export default function Scene3D() {
-  const { rooms, doors, windows, partitions, furniture, setSelected } =
-    useRoomStore();
+  const {
+    rooms,
+    doors,
+    windows,
+    partitions,
+    furniture,
+    materials,
+    setSelectedFurniture,
+    // Wall selection (add these to your store):
+    selectedWallKey,
+    wallMaterials,
+    setSelectedWall,
+  } = useRoomStore();
 
-  // Compute a sensible camera target: centre of all rooms bounding box
+  const wallTex = useProceduralTexture(
+    materials.wallTexture || "plain",
+    materials.wallColor || "#F0EDE8",
+  );
+  const wallMat = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        map: wallTex.clone(),
+        roughness: 0.88,
+        color: "#F0EDE8",
+      }),
+    [wallTex],
+  );
+  const glassMat = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: "#B8D8F0",
+        transparent: true,
+        opacity: 0.32,
+        roughness: 0.05,
+        metalness: 0.15,
+      }),
+    [],
+  );
+  const frameMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: "#E8E2D8", roughness: 0.7 }),
+    [],
+  );
+  const doorMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: "#C8B898", roughness: 0.6 }),
+    [],
+  );
+
+  const walls = useMemo(
+    () => buildAllWalls(rooms, doors as Door[], windows as any),
+    [rooms, doors, windows],
+  );
+
   const bbox = useMemo(() => {
-    if (rooms.length === 0) return { cx: 3, cz: 3, maxW: 6, maxD: 6 };
+    if (rooms.length === 0) return { cx: 4, cz: 4, span: 8 };
     let minX = Infinity,
       minZ = Infinity,
       maxX = -Infinity,
@@ -690,68 +877,84 @@ export default function Scene3D() {
     return {
       cx: (minX + maxX) / 2,
       cz: (minZ + maxZ) / 2,
-      maxW: maxX - minX,
-      maxD: maxZ - minZ,
+      span: Math.max(maxX - minX, maxZ - minZ),
     };
   }, [rooms]);
 
-  const camDist = Math.max(bbox.maxW, bbox.maxD) * 1.4 + 4;
+  const camDist = bbox.span * 1.2 + 5;
 
   return (
-    <div className="w-full h-full canvas-container">
+    <div className="w-full h-full">
       <Canvas
         camera={{
           position: [
-            bbox.cx + camDist * 0.6,
-            camDist * 0.8,
-            bbox.cz + camDist * 0.9,
+            bbox.cx + camDist * 0.55,
+            camDist * 0.7,
+            bbox.cz + camDist * 0.85,
           ],
-          fov: 50,
+          fov: 48,
         }}
         shadows
-        onClick={() => setSelected(null, null)}
+        onPointerMissed={() => {
+          setSelectedFurniture(null);
+          setSelectedWall?.(null);
+        }}
       >
-        <ambientLight intensity={0.45} />
+        <ambientLight intensity={0.5} />
         <directionalLight
-          position={[bbox.cx + 5, 8, bbox.cz + 5]}
-          intensity={1.3}
+          position={[bbox.cx + 6, 10, bbox.cz + 6]}
+          intensity={1.2}
           castShadow
           shadow-mapSize={[2048, 2048]}
-          shadow-camera-left={-20}
-          shadow-camera-right={20}
-          shadow-camera-top={20}
-          shadow-camera-bottom={-20}
+          shadow-camera-left={-30}
+          shadow-camera-right={30}
+          shadow-camera-top={30}
+          shadow-camera-bottom={-30}
         />
         <pointLight
-          position={[bbox.cx, 2.5, bbox.cz]}
-          intensity={0.25}
-          color="#FFF5E0"
+          position={[bbox.cx, 2.4, bbox.cz]}
+          intensity={0.2}
+          color="#FFF4E0"
         />
 
-        <GroundPlane />
+        <Ground />
 
-        {rooms.map((room) => (
-          <RoomMesh
-            key={room.id}
-            room={room}
-            doors={doors as Door[]}
-            windows={windows as any}
-          />
+        {rooms.map((room: any) => (
+          <RoomSurfaces key={room.id} room={room} />
         ))}
 
-        {partitions.map((p) => (
-          <PartitionMesh key={p.id} p={p} />
+        {walls.map((edge, i) => {
+          const wk = makeWallKey(edge.x1, edge.z1, edge.x2, edge.z2);
+          const assigned = wallMaterials?.[wk];
+          return (
+            <WallMesh
+              key={i}
+              edge={edge}
+              wKey={wk}
+              wallMat={wallMat}
+              glassMat={glassMat}
+              frameMat={frameMat}
+              doorMat={doorMat}
+              isSelected={selectedWallKey === wk}
+              assignedImageUrl={assigned?.material?.image ?? null}
+              onSelect={(key) => setSelectedWall?.(key)}
+            />
+          );
+        })}
+
+        {partitions.map((p: any) => (
+          <PartitionMesh key={p.id} p={p} wallMat={wallMat} />
         ))}
 
-        {furniture.map((item) => (
+        {furniture.map((item: any) => (
           <FurnitureItem key={item.id} item={item} />
         ))}
 
         <OrbitControls
-          target={[bbox.cx, 1, bbox.cz]}
+          target={[bbox.cx, 1.2, bbox.cz]}
           maxPolarAngle={Math.PI / 2.05}
           minDistance={2}
-          maxDistance={40}
+          maxDistance={50}
         />
         <Environment preset="apartment" />
       </Canvas>
