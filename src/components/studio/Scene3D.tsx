@@ -209,7 +209,30 @@ function buildAllWalls(
     }
   }
 
-  return Array.from(edgeMap.values());
+  // ─── Corner join ──────────────────────────────────────────────────────────
+  // ყველა კედელი სრულ სიგრძეზეა → კუთხეებში ბოქსები ერთმანეთს ედება და
+  // ტექსტურა იკვეთება. გადაწყვეტა: X-კედლები T/2-ით გავაგრძელოთ ბოლოებში,
+  // Z-კედლები T/2-ით შევამციროთ — ისე რომ კუთხეში ზუსტად შეერთდნენ
+  // (X კედელი ფარავს კუთხეს, Z კედელი მის შიდა წახნაგს ებჯინება). გადაფარვა 0.
+  const all = Array.from(edgeMap.values());
+  const H = T / 2;
+  for (const e of all) {
+    if (e.axis === "x") {
+      e.x1 -= H;
+      e.x2 += H;
+      e.length += T;
+      e.openings = e.openings.map((op) => ({ ...op, start: op.start + H }));
+    } else {
+      e.z1 += H;
+      e.z2 -= H;
+      e.length = Math.max(0, e.length - T);
+      e.openings = e.openings.map((op) => ({
+        ...op,
+        start: Math.max(0, op.start - H),
+      }));
+    }
+  }
+  return all;
 }
 
 // ─── Wall segment splitter ────────────────────────────────────────────────────
