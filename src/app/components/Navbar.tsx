@@ -3,7 +3,8 @@ import { useRoomStore } from '../store'
 import { Box, PenLine, Download, Upload } from 'lucide-react'
 
 export default function Navbar() {
-  const { viewMode, setViewMode, roomGenerated, room } = useRoomStore()
+  const { viewMode, setViewMode, rooms } = useRoomStore()
+  const totalArea = rooms.reduce((sum, r) => sum + r.width * r.height, 0)
 
   return (
     <header className="h-14 bg-white border-b border-gray-100 flex items-center px-4 gap-4 z-10 shadow-sm">
@@ -25,10 +26,9 @@ export default function Navbar() {
           2D გეგმა
         </button>
         <button
-          onClick={() => roomGenerated && setViewMode('3d')}
+          onClick={() => setViewMode('3d')}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all
-            ${viewMode === '3d' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}
-            ${!roomGenerated ? 'opacity-40 cursor-not-allowed' : ''}`}>
+            ${viewMode === '3d' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
           <Box size={12} />
           3D ხედი
         </button>
@@ -36,7 +36,7 @@ export default function Navbar() {
 
       {/* Room info */}
       <div className="text-xs text-gray-400 ml-2">
-        {room.width}მ × {room.height}მ · {(room.width * room.height).toFixed(1)}მ²
+        {rooms.length} ოთახი · {totalArea.toFixed(1)}მ² სულ
       </div>
 
       {/* Spacer */}
