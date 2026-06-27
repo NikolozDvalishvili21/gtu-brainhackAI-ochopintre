@@ -1,11 +1,13 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
-import type { ComponentType } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useRoomStore } from "@/lib/store/room-store";
+import { loadBrief, clearBrief, loadSession } from "@/lib/assistant/session";
+import { moodboardToStudioPatch } from "@/lib/assistant/map-to-studio";
 import Navbar from "@/components/studio/Navbar";
 import Sidebar from "@/components/studio/Sidebar";
+import StudioAssistantPanel from "@/components/studio/StudioAssistantPanel";
 import Editor2D from "@/components/studio/Editor2D";
 
 const Scene3D = dynamic(() => import("@/components/studio/Scene3D"), {
@@ -13,12 +15,38 @@ const Scene3D = dynamic(() => import("@/components/studio/Scene3D"), {
 });
 
 export default function StudioWorkspace() {
-  const { viewMode } = useRoomStore();
+  const { viewMode, hydrateFromBrief } = useRoomStore();
+  const hydratedRef = useRef(false);
+
+  const applyMoodboard = useCallback(
+    (board: Parameters<typeof moodboardToStudioPatch>[0]) => {
+      hydrateFromBrief(moodboardToStudioPatch(board));
+    },
+    [hydrateFromBrief]
+  );
+
+  useEffect(() => {
+    if (hydratedRef.current) return
+    hydratedRef.current = true
+
+    const session = loadSession()
+    if (session?.moodboard) {
+      applyMoodboard(session.moodboard)
+      return
+    }
+
+    const brief = loadBrief()
+    if (brief) {
+      applyMoodboard(brief)
+      clearBrief()
+    }
+  }, [applyMoodboard]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <Navbar />
       <div className="flex flex-1 overflow-hidden">
+        <StudioAssistantPanel />
         <main className="flex-1 overflow-hidden bg-surface">
           {viewMode === "2d" ? <Editor2D /> : <Scene3D />}
         </main>

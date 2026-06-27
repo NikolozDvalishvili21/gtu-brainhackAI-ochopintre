@@ -497,7 +497,7 @@ export default function Editor2D() {
   return (
     <div className="flex h-full">
       {/* Left toolbar */}
-      <div className="w-16 bg-white border-r border-gray-100 flex flex-col items-center py-3 gap-1">
+      <div className="w-16 bg-white border-r border-gray-200 flex flex-col items-center py-3 gap-1">
         {tools.map(t => (
           <button key={t.id} onClick={() => setActiveTool(t.id)} title={t.label}
             className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all
@@ -543,16 +543,16 @@ export default function Editor2D() {
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
           onMouseLeave={onMouseLeave}
-          className="rounded-2xl shadow-sm border border-gray-100"
+          className="rounded-2xl shadow-sm border border-gray-200"
         />
 
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-gray-400 bg-white/80 px-3 py-1 rounded-full border border-gray-100 pointer-events-none">
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-gray-400 bg-white/80 px-3 py-1 rounded-full border border-gray-200 pointer-events-none">
           scroll → zoom · drag ცარიელ ადგილზე → pan
         </div>
 
         {showClearConfirm && (
           <div className="absolute inset-0 bg-black/20 flex items-center justify-center rounded-2xl">
-            <div className="bg-white rounded-2xl p-5 shadow-lg border border-gray-100 max-w-xs w-full mx-4">
+            <div className="bg-white rounded-2xl p-5 shadow-lg border border-gray-200 max-w-xs w-full mx-4">
               <p className="text-sm font-medium text-gray-900 mb-1">ყველაფრის წაშლა?</p>
               <p className="text-xs text-gray-500 mb-4">ყველა ოთახი, კარი და ფანჯარა წაიშლება. ეს შეუქცევადია.</p>
               <div className="flex gap-2">
@@ -571,7 +571,7 @@ export default function Editor2D() {
       </div>
 
       {/* Right properties panel */}
-      <div className="w-52 bg-white border-l border-gray-100 p-3 flex flex-col gap-3 overflow-y-auto">
+      <div className="w-52 bg-white border-l border-gray-200 p-3 flex flex-col gap-3 overflow-y-auto">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">თვისებები</p>
 
         {selectedRoom && (

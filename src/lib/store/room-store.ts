@@ -159,6 +159,13 @@ interface EditorStore {
   setSelectedFloor: (roomId: string | null) => void;
   setFloorMaterial: (roomId: string, material: MaterialRef) => void;
   clearFloorMaterial: (roomId: string) => void;
+
+  hydrateFromBrief: (patch: {
+    rooms?: RoomShape[];
+    furniture?: Furniture[];
+    materials?: Partial<MaterialChoice>;
+    room?: { width: number; height: number };
+  }) => void;
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -326,5 +333,27 @@ export const useRoomStore = create<EditorStore>((set) => ({
       const next = { ...s.floorMaterials };
       delete next[roomId];
       return { floorMaterials: next };
+    }),
+
+  hydrateFromBrief: (patch) =>
+    set((s) => {
+      const next: Partial<EditorStore> = {
+        roomGenerated: true,
+        viewMode: "3d",
+      };
+
+      if (patch.rooms) {
+        next.rooms = patch.rooms;
+        next.partitions = [];
+        next.doors = [];
+        next.windows = [];
+      }
+      if (patch.furniture) next.furniture = patch.furniture;
+      if (patch.materials) {
+        next.materials = { ...s.materials, ...patch.materials };
+      }
+      if (patch.room) next.room = patch.room;
+
+      return next;
     }),
 }));

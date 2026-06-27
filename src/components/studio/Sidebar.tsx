@@ -1,6 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRoomStore, WallColor, MaterialRef } from '../../lib/store/room-store'
+import { FURNITURE_CATALOG_LIST } from '@/lib/constants/furniture-catalog'
+import { placeSingleItem } from '@/lib/studio/furniture-layout'
 import { Layers, Palette, Sofa, X, Loader2 } from 'lucide-react'
 import { MaterialTile, MaterialDetail } from './MaterialCard'
 
@@ -10,17 +12,6 @@ const FLOORS = [
   { id: 'parquet', label: 'პარკეტი', icon: '🪵' },
   { id: 'tile', label: 'ფილა', icon: '⬜' },
   { id: 'plain', label: 'ბეტონი', icon: '⬛' },
-]
-
-const FURNITURE_CATALOG = [
-  { type: 'sofa', label: 'დივანი', icon: '🛋️', width: 2.2, depth: 0.9, height: 0.8, color: '#8B7355' },
-  { type: 'chair', label: 'სავარძელი', icon: '🪑', width: 0.6, depth: 0.6, height: 0.9, color: '#6B5B45' },
-  { type: 'table', label: 'მაგიდა', icon: '🪵', width: 1.2, depth: 0.7, height: 0.75, color: '#C8A882' },
-  { type: 'bed', label: 'საწოლი', icon: '🛏️', width: 1.6, depth: 2.1, height: 0.5, color: '#E8DDD0' },
-  { type: 'plant', label: 'მცენარე', icon: '🌿', width: 0.4, depth: 0.4, height: 1.0, color: '#2D6A4F' },
-  { type: 'wardrobe', label: 'კარადა', icon: '🚪', width: 1.8, depth: 0.6, height: 2.2, color: '#D4B896' },
-  { type: 'desk', label: 'წერის მაგიდა', icon: '🖥️', width: 1.4, depth: 0.7, height: 0.75, color: '#E8C99A' },
-  { type: 'lamp', label: 'ნათება', icon: '💡', width: 0.3, depth: 0.3, height: 1.6, color: '#F5F0EB' },
 ]
 
 type Tab = 'walls' | 'floor' | 'furniture'
@@ -70,23 +61,19 @@ export default function Sidebar() {
       .catch(() => {})
   }, [])
 
-  function handleAddFurniture(item: typeof FURNITURE_CATALOG[0]) {
+  function handleAddFurniture(item: typeof FURNITURE_CATALOG_LIST[0]) {
     const firstRoom = rooms[0]
-    const cx = firstRoom ? firstRoom.x + firstRoom.width / 2 : 2
-    const cz = firstRoom ? firstRoom.y + firstRoom.height / 2 : 2
-    addFurniture({
-      id: Date.now().toString(),
-      type: item.type,
-      label: item.label,
-      x: cx + (Math.random() - 0.5) * 2,
-      y: 0,
-      z: cz + (Math.random() - 0.5) * 2,
-      rotation: 0,
-      width: item.width,
-      depth: item.depth,
-      height: item.height,
-      color: item.color,
-    })
+    const placeRoom = firstRoom
+      ? { x: firstRoom.x, y: firstRoom.y, width: firstRoom.width, height: firstRoom.height }
+      : { x: 0, y: 0, width: 6, height: 5 }
+
+    const newItem = placeSingleItem(
+      placeRoom,
+      furniture,
+      { type: item.type, label: item.label },
+      Date.now().toString()
+    )
+    if (newItem) addFurniture(newItem)
   }
 
   const currentAssignment = selectedWallKey ? wallMaterials[selectedWallKey] : null
@@ -97,10 +84,10 @@ export default function Sidebar() {
   if (viewMode === '2d') return null
 
   return (
-    <div className="w-72 h-full bg-white border-l border-gray-100 flex flex-col overflow-hidden">
+    <div className="w-72 h-full bg-white border-l border-gray-200 flex flex-col overflow-hidden">
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-100">
+      <div className="flex border-b border-gray-200">
         {([
           { id: 'walls', label: 'კედლები', icon: <Layers size={14} /> },
           { id: 'floor', label: 'იატაკი', icon: <Palette size={14} /> },
@@ -331,7 +318,7 @@ export default function Sidebar() {
           <div className="space-y-3">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">ავეჯი დაამატე</p>
             <div className="grid grid-cols-2 gap-2">
-              {FURNITURE_CATALOG.map(item => (
+              {FURNITURE_CATALOG_LIST.map(item => (
                 <button key={item.type}
                   onClick={() => handleAddFurniture(item)}
                   className="flex flex-col items-center gap-1 p-3 rounded-xl border border-gray-100 hover:border-brand hover:bg-green-50 transition-all text-center">

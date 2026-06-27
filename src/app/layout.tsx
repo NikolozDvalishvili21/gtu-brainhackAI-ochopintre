@@ -1,5 +1,11 @@
 import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
 import './globals.css'
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+})
 
 export const metadata: Metadata = {
   title: 'Interior AI Studio',
@@ -8,8 +14,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="ka" className={`${inter.variable} h-full`}>
+      <body className={`${inter.className} min-h-full bg-surface text-gray-900 antialiased`}>
+        {children}
+      </body>
     </html>
   )
 }

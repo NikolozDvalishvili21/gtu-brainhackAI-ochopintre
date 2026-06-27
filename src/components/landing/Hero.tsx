@@ -27,6 +27,12 @@ export default function Hero() {
             >
               სტუდიოში ნახვა
             </Link>
+            <Link
+              href="/assistant"
+              className="inline-flex items-center justify-center border border-brand bg-white px-5 py-2.5 text-sm font-medium text-brand transition-colors hover:bg-brand/5"
+            >
+              AI ასისტენტი
+            </Link>
           </div>
         </div>
 

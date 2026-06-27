@@ -1,0 +1,35 @@
+export const SUBSCRIPTION_PLANS = [
+  {
+    id: 'free',
+    name: 'უფასო',
+    price: '0₾',
+    period: 'სამუდამოდ',
+    description: 'დაიწყე ოთახის დაგეგმვა და 3D ხედის გაფორმება უფასოდ.',
+    features: [
+      '2D ოთახის დაგეგმვა',
+      '3D ხედი და მასალების არჩევა',
+      'ძირითადი ავეჯის კატალოგი',
+      'AI ასისტენტი — 5 მოთხოვნა დღეში',
+    ],
+    cta: 'დაწყება',
+    ctaHref: '/studio',
+    highlighted: false,
+  },
+  {
+    id: 'paid',
+    name: 'Pro',
+    price: '19₾',
+    period: 'თვეში',
+    description: 'სრული ფუნქციონალი პროფესიონალური ინტერიერის დაგეგმვისთვის.',
+    features: [
+      'ყველაფერი უფასო გეგმიდან',
+      'შეუზღუდავი AI moodboard-ები',
+      '2D / 3D ექსპორტი',
+      'პრემიუმ შპალერი და იატაკი',
+      'პრიორიტეტული მხარდაჭერა',
+    ],
+    cta: 'Pro-ს არჩევა',
+    ctaHref: '/studio',
+    highlighted: true,
+  },
+] as const

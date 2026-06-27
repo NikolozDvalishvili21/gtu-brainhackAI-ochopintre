@@ -12,7 +12,7 @@ module.exports = {
         muted: '#6B7280',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
         display: ['Georgia', 'serif'],
       },
     },
