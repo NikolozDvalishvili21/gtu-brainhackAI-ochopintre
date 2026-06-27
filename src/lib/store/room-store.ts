@@ -82,10 +82,13 @@ export interface MaterialRef {
   id: string;
   name: string;
   image: string;
-  price: number;
-  currency: string;
-  unit: string;
+  price: number | null;
+  currency: string | null;
+  unit: string | null;
   category: string;
+  source?: string; // 'nova' | 'domino'
+  url?: string | null;
+  dimensions?: string | null;
 }
 
 export interface WallMaterialAssignment {

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRoomStore, WallColor, MaterialRef } from '../../lib/store/room-store'
 import { Layers, Palette, Sofa, X, Loader2 } from 'lucide-react'
+import { MaterialTile, MaterialDetail } from './MaterialCard'
 
 const BASE = 'https://interior-materials-api.onrender.com'
 
@@ -121,10 +122,13 @@ export default function Sidebar() {
 
             {/* Selected wall status */}
             {selectedWallKey ? (
+              currentMaterial ? (
+                <MaterialDetail m={currentMaterial} onClear={() => clearWallMaterial(selectedWallKey)} />
+              ) : (
               <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-2">
                   <p className="text-xs font-semibold text-brand">კედელი მონიშნულია</p>
-                  {(currentColor || currentMaterial) && (
+                  {currentColor && (
                     <button
                       onClick={() => clearWallMaterial(selectedWallKey)}
                       className="text-xs text-gray-400 hover:text-red-400 transition-colors">
@@ -132,13 +136,7 @@ export default function Sidebar() {
                     </button>
                   )}
                 </div>
-                {currentMaterial ? (
-                  <div className="flex items-center gap-2">
-                    <img src={currentMaterial.image} alt=""
-                      className="w-7 h-7 rounded-lg border border-gray-200 shadow-sm flex-shrink-0 object-cover" />
-                    <span className="text-xs text-gray-700 truncate">{currentMaterial.name}</span>
-                  </div>
-                ) : currentColor ? (
+                {currentColor ? (
                   <div className="flex items-center gap-2">
                     <div className="w-7 h-7 rounded-lg border border-gray-200 shadow-sm flex-shrink-0"
                       style={{ background: currentColor.color }} />
@@ -148,6 +146,7 @@ export default function Sidebar() {
                   <p className="text-xs text-gray-400">ქვემოდან აირჩიე ფერი ან შპალერი</p>
                 )}
               </div>
+              )
             ) : (
               <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-3 text-center">
                 <p className="text-xs text-gray-400">3D-ში კლიკე კედელზე</p>
@@ -229,26 +228,16 @@ export default function Sidebar() {
                   <Loader2 size={16} className="animate-spin text-gray-300" />
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto">
-                  {wallpapers.map(w => {
-                    const isActive = currentMaterial?.id === w.id
-                    return (
-                      <button
-                        key={w.id}
-                        title={w.name}
-                        disabled={!selectedWallKey}
-                        onClick={() => selectedWallKey && setWallMaterial(selectedWallKey, { material: w })}
-                        className={`relative aspect-square rounded-lg border-2 overflow-hidden transition-all
-                          ${isActive ? 'border-brand scale-105 shadow-md' : 'border-gray-200 hover:border-gray-400'}
-                          ${!selectedWallKey ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
-                        <img src={w.image} alt={w.name} loading="lazy"
-                          className="w-full h-full object-cover" />
-                        {isActive && (
-                          <span className="absolute inset-0 flex items-center justify-center bg-brand/30 text-white text-sm font-bold">✓</span>
-                        )}
-                      </button>
-                    )
-                  })}
+                <div className="grid grid-cols-2 gap-2 max-h-80 overflow-y-auto pr-0.5">
+                  {wallpapers.map(w => (
+                    <MaterialTile
+                      key={w.id}
+                      m={w}
+                      active={currentMaterial?.id === w.id}
+                      disabled={!selectedWallKey}
+                      onClick={() => selectedWallKey && setWallMaterial(selectedWallKey, { material: w })}
+                    />
+                  ))}
                 </div>
               )}
             </div>
@@ -275,27 +264,14 @@ export default function Sidebar() {
 
             {/* Selected floor status */}
             {selectedFloorRoomId ? (
-              <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold text-brand">იატაკი მონიშნულია</p>
-                  {currentFloor && (
-                    <button
-                      onClick={() => clearFloorMaterial(selectedFloorRoomId)}
-                      className="text-xs text-gray-400 hover:text-red-400 transition-colors">
-                      გასუფთავება
-                    </button>
-                  )}
-                </div>
-                {currentFloor ? (
-                  <div className="flex items-center gap-2">
-                    <img src={currentFloor.image} alt=""
-                      className="w-7 h-7 rounded-lg border border-gray-200 shadow-sm flex-shrink-0 object-cover" />
-                    <span className="text-xs text-gray-700 truncate">{currentFloor.name}</span>
-                  </div>
-                ) : (
+              currentFloor ? (
+                <MaterialDetail m={currentFloor} onClear={() => clearFloorMaterial(selectedFloorRoomId)} />
+              ) : (
+                <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
+                  <p className="text-xs font-semibold text-brand mb-1">იატაკი მონიშნულია</p>
                   <p className="text-xs text-gray-400">ქვემოდან აირჩიე მასალა</p>
-                )}
-              </div>
+                </div>
+              )
             ) : (
               <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-3 text-center">
                 <p className="text-xs text-gray-400">3D-ში კლიკე იატაკზე</p>
@@ -313,26 +289,16 @@ export default function Sidebar() {
                   <Loader2 size={16} className="animate-spin text-gray-300" />
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-2 max-h-72 overflow-y-auto">
-                  {floorList.map(m => {
-                    const isActive = currentFloor?.id === m.id
-                    return (
-                      <button
-                        key={m.id}
-                        title={m.name}
-                        disabled={!selectedFloorRoomId}
-                        onClick={() => selectedFloorRoomId && setFloorMaterial(selectedFloorRoomId, m)}
-                        className={`relative aspect-square rounded-lg border-2 overflow-hidden transition-all
-                          ${isActive ? 'border-brand scale-105 shadow-md' : 'border-gray-200 hover:border-gray-400'}
-                          ${!selectedFloorRoomId ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
-                        <img src={m.image} alt={m.name} loading="lazy"
-                          className="w-full h-full object-cover" />
-                        {isActive && (
-                          <span className="absolute inset-0 flex items-center justify-center bg-brand/30 text-white text-sm font-bold">✓</span>
-                        )}
-                      </button>
-                    )
-                  })}
+                <div className="grid grid-cols-2 gap-2 max-h-80 overflow-y-auto pr-0.5">
+                  {floorList.map(m => (
+                    <MaterialTile
+                      key={m.id}
+                      m={m}
+                      active={currentFloor?.id === m.id}
+                      disabled={!selectedFloorRoomId}
+                      onClick={() => selectedFloorRoomId && setFloorMaterial(selectedFloorRoomId, m)}
+                    />
+                  ))}
                 </div>
               )}
             </div>
