@@ -298,7 +298,7 @@ function WallDropZone() {
 interface WallMeshProps {
   edge: WallEdge;
   wKey: string;
-  wallMat: THREE.Material;
+  wallTex: THREE.Texture;
   glassMat: THREE.Material;
   frameMat: THREE.Material;
   doorMat: THREE.Material;
@@ -311,7 +311,7 @@ interface WallMeshProps {
 function WallMesh({
   edge,
   wKey,
-  wallMat,
+  wallTex,
   glassMat,
   frameMat,
   doorMat,
@@ -323,21 +323,20 @@ function WallMesh({
   const { solid, openings } = splitWall(edge.length, edge.openings);
   const assignedTex = useImageTexture(assignedImageUrl);
 
-  const activeMat = useMemo(() => {
+  // თითო segment-ს საკუთარი material — გაზიარებული instance + `<primitive>`
+  // იწვევდა იმას, რომ ფერი მხოლოდ ერთ კედელზე ჩანდა. დეკლარაციული JSX
+  // material თითო mesh-ს დამოუკიდებლად ანახლებს assignedColor/assignedTex-ზე.
+  const renderWallMaterial = () => {
     if (assignedTex) {
-      return new THREE.MeshStandardMaterial({
-        map: assignedTex,
-        roughness: 0.85,
-      });
+      return <meshStandardMaterial map={assignedTex} roughness={0.85} />;
     }
     if (assignedColor) {
-      return new THREE.MeshStandardMaterial({
-        color: assignedColor,
-        roughness: 0.88,
-      });
+      return <meshStandardMaterial color={assignedColor} roughness={0.88} />;
     }
-    return wallMat;
-  }, [assignedTex, assignedColor, wallMat]);
+    return (
+      <meshStandardMaterial map={wallTex} color="#F0EDE8" roughness={0.88} />
+    );
+  };
 
   const segPos = (
     start: number,
@@ -388,7 +387,7 @@ function WallMesh({
           receiveShadow
         >
           {segGeo(s.len, s.h)}
-          <primitive object={activeMat} attach="material" />
+          {renderWallMaterial()}
         </mesh>
       ))}
 
@@ -958,7 +957,7 @@ export default function Scene3D() {
               key={i}
               edge={edge}
               wKey={wk}
-              wallMat={wallMat}
+              wallTex={wallTex}
               glassMat={glassMat}
               frameMat={frameMat}
               doorMat={doorMat}
