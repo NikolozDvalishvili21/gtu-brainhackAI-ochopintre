@@ -1,7 +1,8 @@
 import type { MoodboardResult, MoodboardFurniture, MoodboardRoom } from './types'
-import type { RoomShape, Furniture } from '@/lib/store/room-store'
+import type { RoomShape, Furniture, WallMaterialAssignment, MaterialRef } from '@/lib/store/room-store'
 import { ensureRoomFits, layoutFurnitureInRoom } from '@/lib/studio/furniture-layout'
 import { layoutRooms, boundingBox, normalizeRoomOrigin } from '@/lib/studio/room-layout'
+import { buildWallKeysForRooms } from '@/lib/studio/wall-keys'
 
 function toLayoutItems(items: MoodboardFurniture[]) {
   return items.map((f) => ({
@@ -35,6 +36,48 @@ function placeFurnitureForRooms(
   return all
 }
 
+function buildMaterialAssignments(board: MoodboardResult, rooms: RoomShape[]) {
+  const matched = board.matchedMaterials
+  const wallKeys = buildWallKeysForRooms(rooms)
+
+  const wallColor = matched?.wall.product.color ?? board.colors.wall
+  const ceilingColor = matched?.ceiling.product.color ?? board.colors.ceiling
+  const floorTexture = board.materials.floorTexture
+
+  const wallMaterials: Record<string, WallMaterialAssignment> = {}
+  for (const key of wallKeys) {
+    if (matched?.wallpaper && board.materials.wallTexture !== 'plain') {
+      wallMaterials[key] = { material: matched.wallpaper }
+    } else {
+      wallMaterials[key] = {
+        color: {
+          id: matched?.wall.product.id ?? 'ai-wall',
+          name: matched?.wall.product.name ?? 'AI კედელი',
+          color: wallColor,
+        },
+      }
+    }
+  }
+
+  const floorMaterials: Record<string, MaterialRef> = {}
+  if (matched?.floor.product) {
+    for (const room of rooms) {
+      floorMaterials[room.id] = matched.floor.product
+    }
+  }
+
+  return {
+    materials: {
+      wallColor,
+      ceilingColor,
+      wallTexture: board.materials.wallTexture,
+      floorTexture,
+    },
+    wallMaterials,
+    floorMaterials,
+  }
+}
+
 function buildMultiRoomPatch(board: MoodboardResult) {
   const roomDefs = board.rooms!
   let rooms = layoutRooms(
@@ -52,15 +95,12 @@ function buildMultiRoomPatch(board: MoodboardResult) {
   const furniture = placeFurnitureForRooms(roomDefs, rooms)
   rooms = normalizeRoomOrigin(rooms)
 
+  const materialPatch = buildMaterialAssignments(board, rooms)
+
   return {
     rooms,
     furniture,
-    materials: {
-      wallColor: board.colors.wall,
-      ceilingColor: board.colors.ceiling,
-      wallTexture: board.materials.wallTexture,
-      floorTexture: board.materials.floorTexture,
-    },
+    ...materialPatch,
     room: boundingBox(rooms),
   }
 }
@@ -83,16 +123,14 @@ function buildSingleRoomPatch(board: MoodboardResult) {
   const fittedRoom = ensureRoomFits(baseRoom, layoutItems)
   const room: RoomShape = { ...baseRoom, width: fittedRoom.width, height: fittedRoom.height }
   const furniture: Furniture[] = layoutFurnitureInRoom(room, layoutItems, 'ai-0')
+  const rooms = [room]
+
+  const materialPatch = buildMaterialAssignments(board, rooms)
 
   return {
-    rooms: [room],
+    rooms,
     furniture,
-    materials: {
-      wallColor: board.colors.wall,
-      ceilingColor: board.colors.ceiling,
-      wallTexture: board.materials.wallTexture,
-      floorTexture: board.materials.floorTexture,
-    },
+    ...materialPatch,
     room: { width: room.width, height: room.height },
   }
 }

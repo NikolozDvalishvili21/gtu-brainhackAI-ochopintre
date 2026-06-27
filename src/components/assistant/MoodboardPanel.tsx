@@ -2,14 +2,21 @@
 
 import Link from 'next/link'
 import type { MoodboardResult } from '@/lib/assistant/types'
+import { AiColorSwatches, MatchedMaterialsSection } from './MatchedMaterialsSection'
 
 type MoodboardPanelProps = {
   moodboard: MoodboardResult | null
   loading: boolean
+  matchingMaterials?: boolean
   onGoToStudio?: () => void
 }
 
-export default function MoodboardPanel({ moodboard, loading, onGoToStudio }: MoodboardPanelProps) {
+export default function MoodboardPanel({
+  moodboard,
+  loading,
+  matchingMaterials = false,
+  onGoToStudio,
+}: MoodboardPanelProps) {
   if (loading) {
     return (
       <aside className="flex flex-col border-t border-gray-200 bg-white lg:w-[320px] lg:shrink-0 lg:border-l lg:border-t-0">
@@ -64,25 +71,12 @@ export default function MoodboardPanel({ moodboard, loading, onGoToStudio }: Moo
           </div>
         )}
 
-        <div className="mt-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">ფერები</p>
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { label: 'კედელი', color: colors.wall },
-              { label: 'ფოკუსი', color: colors.accent },
-              { label: 'იატაკი', color: colors.floor },
-              { label: 'ჭერი', color: colors.ceiling },
-            ].map((swatch) => (
-              <div key={swatch.label} className="text-center">
-                <div
-                  className="mx-auto h-10 w-10 border border-gray-200"
-                  style={{ background: swatch.color }}
-                />
-                <span className="mt-1 block text-[10px] text-gray-500">{swatch.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <AiColorSwatches colors={colors} />
+
+        <MatchedMaterialsSection
+          matched={moodboard.matchedMaterials}
+          matching={matchingMaterials}
+        />
 
         <div className="mt-4 space-y-1 text-xs text-gray-600">
           <p>

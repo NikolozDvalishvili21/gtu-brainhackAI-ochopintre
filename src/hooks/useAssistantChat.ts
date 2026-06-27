@@ -5,6 +5,7 @@ import type { ChatMessage, MoodboardResult } from '@/lib/assistant/types'
 import { WELCOME_MESSAGE } from '@/lib/assistant/mock-data'
 import { sendAssistantMessage } from '@/lib/assistant/client'
 import { loadSession, saveSession } from '@/lib/assistant/session'
+import { ensureMoodboardMatched } from '@/lib/materials/match-moodboard'
 
 function makeId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -23,6 +24,7 @@ export function useAssistantChat(options: UseAssistantChatOptions = {}) {
   const [moodboard, setMoodboard] = useState<MoodboardResult | null>(null)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [matchingMaterials, setMatchingMaterials] = useState(false)
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
@@ -30,7 +32,12 @@ export function useAssistantChat(options: UseAssistantChatOptions = {}) {
     const session = loadSession()
     if (session) {
       setMessages(session.messages.length > 0 ? session.messages : [WELCOME_MESSAGE])
-      setMoodboard(session.moodboard)
+      if (session.moodboard) {
+        setMatchingMaterials(true)
+        ensureMoodboardMatched(session.moodboard)
+          .then(setMoodboard)
+          .finally(() => setMatchingMaterials(false))
+      }
     }
     setHydrated(true)
   }, [restoreSession, hydrated])
@@ -41,6 +48,21 @@ export function useAssistantChat(options: UseAssistantChatOptions = {}) {
   }, [messages, moodboard, hydrated])
 
   const userMessageCount = messages.filter((m) => m.role === 'user').length
+
+  const applyMoodboard = useCallback(
+    async (board: MoodboardResult) => {
+      setMoodboard(board)
+      setMatchingMaterials(true)
+      try {
+        const enriched = await ensureMoodboardMatched(board)
+        setMoodboard(enriched)
+        onMoodboardUpdate?.(enriched)
+      } finally {
+        setMatchingMaterials(false)
+      }
+    },
+    [onMoodboardUpdate]
+  )
 
   const handleSend = useCallback(
     async (text?: string) => {
@@ -73,8 +95,7 @@ export function useAssistantChat(options: UseAssistantChatOptions = {}) {
         setMessages((prev) => [...prev, assistantMsg])
 
         if (response.type === 'moodboard') {
-          setMoodboard(response.moodboard)
-          onMoodboardUpdate?.(response.moodboard)
+          await applyMoodboard(response.moodboard)
         }
       } catch (err) {
         const errorMsg: ChatMessage = {
@@ -91,7 +112,7 @@ export function useAssistantChat(options: UseAssistantChatOptions = {}) {
         setLoading(false)
       }
     },
-    [input, loading, messages, moodboard, onMoodboardUpdate, studioMode, userMessageCount]
+    [input, loading, messages, moodboard, applyMoodboard, studioMode, userMessageCount]
   )
 
   return {
@@ -99,6 +120,7 @@ export function useAssistantChat(options: UseAssistantChatOptions = {}) {
     moodboard,
     input,
     loading,
+    matchingMaterials,
     setInput,
     handleSend,
     hydrated,

@@ -44,6 +44,32 @@ export interface MoodboardResult {
   roomHint?: { width: number; height: number }
   /** Furniture for single-room layouts (use rooms[].furniture for multi-room) */
   furniture: MoodboardFurniture[]
+  /** Closest matches from materials API (filled after moodboard is generated) */
+  matchedMaterials?: MoodboardMatchedMaterials
+}
+
+export interface MatchedPaintColor {
+  aiColor: string
+  product: {
+    id: string
+    name: string
+    color: string
+    source: string
+  }
+}
+
+export interface MatchedFloorProduct {
+  aiColor: string
+  tintColor: string
+  product: import('@/lib/store/room-store').MaterialRef | null
+}
+
+export interface MoodboardMatchedMaterials {
+  wall: MatchedPaintColor
+  accent: MatchedPaintColor
+  ceiling: MatchedPaintColor
+  floor: MatchedFloorProduct
+  wallpaper?: import('@/lib/store/room-store').MaterialRef
 }
 
 export type AssistantApiResponse =

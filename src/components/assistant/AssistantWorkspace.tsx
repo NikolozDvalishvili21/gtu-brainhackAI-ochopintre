@@ -6,11 +6,14 @@ import MoodboardPanel from './MoodboardPanel'
 import { saveBrief, saveSession } from '@/lib/assistant/session'
 
 export default function AssistantWorkspace() {
-  const { messages, moodboard, input, loading, setInput, handleSend } = useAssistantChat()
+  const { messages, moodboard, input, loading, matchingMaterials, setInput, handleSend } =
+    useAssistantChat()
 
   function handleGoToStudio() {
-    saveSession({ messages, moodboard })
-    if (moodboard) saveBrief(moodboard)
+    if (moodboard) {
+      saveSession({ messages, moodboard })
+      saveBrief(moodboard)
+    }
   }
 
   return (
@@ -25,6 +28,7 @@ export default function AssistantWorkspace() {
       <MoodboardPanel
         moodboard={moodboard}
         loading={loading && !moodboard}
+        matchingMaterials={matchingMaterials}
         onGoToStudio={handleGoToStudio}
       />
     </div>

@@ -165,6 +165,8 @@ interface EditorStore {
     furniture?: Furniture[];
     materials?: Partial<MaterialChoice>;
     room?: { width: number; height: number };
+    wallMaterials?: Record<string, WallMaterialAssignment>;
+    floorMaterials?: Record<string, MaterialRef>;
   }) => void;
 }
 
@@ -353,6 +355,8 @@ export const useRoomStore = create<EditorStore>((set) => ({
         next.materials = { ...s.materials, ...patch.materials };
       }
       if (patch.room) next.room = patch.room;
+      if (patch.wallMaterials) next.wallMaterials = patch.wallMaterials;
+      if (patch.floorMaterials) next.floorMaterials = patch.floorMaterials;
 
       return next;
     }),

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useRoomStore } from "@/lib/store/room-store";
 import { loadBrief, clearBrief, loadSession } from "@/lib/assistant/session";
 import { moodboardToStudioPatch } from "@/lib/assistant/map-to-studio";
+import { ensureMoodboardMatched } from "@/lib/materials/match-moodboard";
 import Navbar from "@/components/studio/Navbar";
 import Sidebar from "@/components/studio/Sidebar";
 import StudioAssistantPanel from "@/components/studio/StudioAssistantPanel";
@@ -26,20 +27,20 @@ export default function StudioWorkspace() {
   );
 
   useEffect(() => {
-    if (hydratedRef.current) return
-    hydratedRef.current = true
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
 
-    const session = loadSession()
-    if (session?.moodboard) {
-      applyMoodboard(session.moodboard)
-      return
+    async function init() {
+      const session = loadSession();
+      const rawBoard = session?.moodboard ?? loadBrief();
+      if (!rawBoard) return;
+
+      const board = await ensureMoodboardMatched(rawBoard);
+      applyMoodboard(board);
+      if (loadBrief()) clearBrief();
     }
 
-    const brief = loadBrief()
-    if (brief) {
-      applyMoodboard(brief)
-      clearBrief()
-    }
+    init();
   }, [applyMoodboard]);
 
   return (
