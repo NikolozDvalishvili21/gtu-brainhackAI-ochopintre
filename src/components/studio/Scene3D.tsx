@@ -3,7 +3,7 @@ import { useRef, useMemo } from 'react'
 import { Canvas, useFrame, ThreeEvent } from '@react-three/fiber'
 import { OrbitControls, Environment, Text } from '@react-three/drei'
 import * as THREE from 'three'
-import { useRoomStore, Furniture } from '@/lib/store/room-store'
+import { useRoomStore, Furniture, type Door, type RoomShape, type WindowEl } from '@/lib/store/room-store'
 
 const WALL_H = 2.8;
 const WALL_THICKNESS = 0.15;
@@ -476,8 +476,8 @@ function PartitionMesh({
 // ─── Furniture (unchanged) ───────────────────────────────────────────────────
 
 function FurnitureItem({ item }: { item: Furniture }) {
-  const { setSelectedFurniture, selectedFurnitureId } = useRoomStore();
-  const isSelected = selectedFurnitureId === item.id;
+  const { setSelected, selectedId, selectedType } = useRoomStore();
+  const isSelected = selectedType === 'furniture' && selectedId === item.id;
   const meshRef = useRef<THREE.Mesh>(null);
 
   useFrame(() => {
@@ -618,7 +618,7 @@ function FurnitureItem({ item }: { item: Furniture }) {
             position={[item.x, item.y + item.height / 2, item.z]}
             onClick={(e: ThreeEvent<MouseEvent>) => {
               e.stopPropagation();
-              setSelectedFurniture(item.id);
+              setSelected(item.id, 'furniture');
             }}
             castShadow
           >
@@ -633,7 +633,7 @@ function FurnitureItem({ item }: { item: Furniture }) {
     <group
       onClick={(e: ThreeEvent<MouseEvent>) => {
         e.stopPropagation();
-        setSelectedFurniture(item.id);
+        setSelected(item.id, 'furniture');
       }}
     >
       {getFurnitureMesh()}
@@ -671,7 +671,7 @@ function GroundPlane() {
 // ─── Scene ───────────────────────────────────────────────────────────────────
 
 export default function Scene3D() {
-  const { rooms, doors, windows, partitions, furniture, setSelectedFurniture } =
+  const { rooms, doors, windows, partitions, furniture, setSelected } =
     useRoomStore();
 
   // Compute a sensible camera target: centre of all rooms bounding box
@@ -709,7 +709,7 @@ export default function Scene3D() {
           fov: 50,
         }}
         shadows
-        onClick={() => setSelectedFurniture(null)}
+        onClick={() => setSelected(null, null)}
       >
         <ambientLight intensity={0.45} />
         <directionalLight

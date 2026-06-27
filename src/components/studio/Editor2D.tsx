@@ -1,6 +1,6 @@
 'use client'
-import { useRef, useEffect, useState } from 'react'
-import { useRoomStore } from '@/lib/store/room-store'
+import { useRef, useEffect, useState, useCallback } from 'react'
+import { useRoomStore, type Door, type RoomShape, type Tool } from '@/lib/store/room-store'
 
 const SCALE = 70
 const GRID = 0.5

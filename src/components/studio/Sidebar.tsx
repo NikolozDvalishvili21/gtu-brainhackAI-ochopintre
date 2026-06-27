@@ -29,17 +29,20 @@ const FURNITURE_CATALOG = [
 type Tab = 'walls' | 'floor' | 'furniture'
 
 export default function Sidebar() {
-  const { materials, setMaterials, addFurniture, room, furniture, selectedFurnitureId, removeFurniture, viewMode } = useRoomStore()
+  const { materials, setMaterials, addFurniture, rooms, furniture, selectedId, selectedType, removeFurniture, viewMode } = useRoomStore()
   const [tab, setTab] = useState<Tab>('walls')
 
   function handleAddFurniture(item: typeof FURNITURE_CATALOG[0]) {
+    const placeRoom = rooms[0]
+    if (!placeRoom) return
+
     const newItem: Furniture = {
       id: Date.now().toString(),
       type: item.type,
       label: item.label,
-      x: (Math.random() - 0.5) * (room.width - item.width - 0.5),
+      x: placeRoom.x + Math.random() * Math.max(0, placeRoom.width - item.width),
       y: 0,
-      z: (Math.random() - 0.5) * (room.height - item.depth - 0.5),
+      z: placeRoom.y + Math.random() * Math.max(0, placeRoom.height - item.depth),
       rotation: 0,
       width: item.width,
       depth: item.depth,
@@ -163,7 +166,7 @@ export default function Sidebar() {
                   {furniture.map(f => (
                     <div key={f.id}
                       className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors
-                        ${selectedFurnitureId === f.id ? 'bg-green-50 border border-brand' : 'hover:bg-gray-50'}`}>
+                        ${selectedType === 'furniture' && selectedId === f.id ? 'bg-green-50 border border-brand' : 'hover:bg-gray-50'}`}>
                       <span className="text-gray-700">{f.label}</span>
                       <button onClick={() => removeFurniture(f.id)}
                         className="text-gray-300 hover:text-red-400 transition-colors">
