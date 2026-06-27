@@ -1,11 +1,69 @@
 "use client";
 
-import { useRoomStore } from "@/lib/store/room-store";
+import { useRef, useState } from "react";
+import { useRoomStore, type RoomShape } from "@/lib/store/room-store";
 import Logo from "@/components/shared/Logo";
-import { Box, PenLine, Download, Upload, Layers } from "lucide-react";
+import { Box, PenLine, Download, Upload, Layers, Loader2 } from "lucide-react";
+
+const ROOM_COLORS = [
+  "#FEF9F3", "#F3F8FE", "#F3FEF6", "#FEF3F8", "#FBF3FE", "#FEFBF3",
+];
+
+function readAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 export default function Navbar() {
-  const { viewMode, setViewMode, roomGenerated, room } = useRoomStore();
+  const { viewMode, setViewMode, roomGenerated, room, applyScannedRooms } =
+    useRoomStore();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [scanning, setScanning] = useState(false);
+
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-uploading the same file
+    if (!file) return;
+
+    setScanning(true);
+    try {
+      const dataUrl = await readAsDataURL(file);
+      const [meta, base64] = dataUrl.split(",");
+      const mimeType = meta.match(/data:(.*?);/)?.[1] ?? file.type ?? "image/png";
+
+      const res = await fetch("/api/scan-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64, mimeType }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "სკანირება ვერ მოხერხდა");
+
+      const scanned = (data.rooms ?? []) as Array<
+        Pick<RoomShape, "label" | "x" | "y" | "width" | "height">
+      >;
+      if (!scanned.length) throw new Error("ნახაზზე ოთახები ვერ ამოვიცანი");
+
+      const rooms: RoomShape[] = scanned.map((r, i) => ({
+        id: `scan-${Date.now()}-${i}`,
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+        label: r.label,
+        color: ROOM_COLORS[i % ROOM_COLORS.length],
+      }));
+      applyScannedRooms(rooms);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "შეცდომა სკანირებისას");
+    } finally {
+      setScanning(false);
+    }
+  }
 
   return (
     <header className="z-10 flex h-14 items-center gap-4 border-b border-gray-100 bg-white px-4 shadow-sm">
@@ -38,9 +96,25 @@ export default function Navbar() {
 
       <div className="flex-1" />
 
-      <button className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700">
-        <Upload size={13} />
-        2D ატვირთვა
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFile}
+      />
+      <button
+        onClick={() => fileRef.current?.click()}
+        disabled={scanning}
+        title="ატვირთე 2D ნახაზის სურათი — AI ამოიცნობს ოთახებს"
+        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 disabled:opacity-60 disabled:cursor-wait"
+      >
+        {scanning ? (
+          <Loader2 size={13} className="animate-spin" />
+        ) : (
+          <Upload size={13} />
+        )}
+        {scanning ? "სკანირება..." : "2D ატვირთვა"}
       </button>
       <button className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-brand-dark">
         <Download size={13} />

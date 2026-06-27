@@ -160,6 +160,9 @@ interface EditorStore {
   setFloorMaterial: (roomId: string, material: MaterialRef) => void;
   clearFloorMaterial: (roomId: string) => void;
 
+  // ── 2D plan scan ─────────────────────────────────────────────────────────
+  applyScannedRooms: (rooms: RoomShape[]) => void;
+
   hydrateFromBrief: (patch: {
     rooms?: RoomShape[];
     furniture?: Furniture[];
@@ -335,6 +338,24 @@ export const useRoomStore = create<EditorStore>((set) => ({
       const next = { ...s.floorMaterials };
       delete next[roomId];
       return { floorMaterials: next };
+    }),
+
+  applyScannedRooms: (rooms) =>
+    set({
+      rooms,
+      partitions: [],
+      doors: [],
+      windows: [],
+      furniture: [],
+      selectedId: null,
+      selectedType: null,
+      selectedWallKey: null,
+      selectedFurnitureId: null,
+      selectedFloorRoomId: null,
+      wallMaterials: {},
+      floorMaterials: {},
+      roomGenerated: true,
+      viewMode: "2d",
     }),
 
   hydrateFromBrief: (patch) =>
