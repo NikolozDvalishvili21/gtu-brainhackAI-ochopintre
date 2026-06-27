@@ -4,11 +4,7 @@ import { useRoomStore } from "@/lib/store/room-store";
 import Logo from "@/components/shared/Logo";
 import { Box, PenLine, Download, Upload, Layers } from "lucide-react";
 
-interface NavbarProps {
-  onOpenMaterials: () => void;
-}
-
-export default function Navbar({ onOpenMaterials }: NavbarProps) {
+export default function Navbar() {
   const { viewMode, setViewMode, roomGenerated, room } = useRoomStore();
 
   return (
@@ -41,14 +37,6 @@ export default function Navbar({ onOpenMaterials }: NavbarProps) {
       </div>
 
       <div className="flex-1" />
-
-      <button
-        onClick={onOpenMaterials}
-        className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
-      >
-        <Layers size={13} />
-        მასალები
-      </button>
 
       <button className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700">
         <Upload size={13} />

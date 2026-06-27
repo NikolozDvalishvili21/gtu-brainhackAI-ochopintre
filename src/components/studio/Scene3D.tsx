@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useMemo, useState, useEffect } from "react";
-import { Canvas, useFrame, ThreeEvent } from "@react-three/fiber";
+import { Canvas, ThreeEvent } from "@react-three/fiber";
 import { OrbitControls, Environment } from "@react-three/drei";
 import * as THREE from "three";
 import {
@@ -15,8 +15,6 @@ const T = 0.14;
 const DOOR_H = 2.1;
 const WIN_SILL = 0.9;
 const WIN_H = 1.2;
-
-// ─── Wall key (must match buildAllWalls normalisation) ────────────────────────
 
 function makeWallKey(x1: number, z1: number, x2: number, z2: number) {
   return `${Math.round(x1 * 1000)},${Math.round(z1 * 1000)},${Math.round(x2 * 1000)},${Math.round(z2 * 1000)}`;
@@ -101,7 +99,6 @@ function useImageTexture(url: string | null): THREE.Texture | null {
     }
     const loader = new THREE.TextureLoader();
     let cancelled = false;
-
     loader.load(
       url,
       (t) => {
@@ -111,11 +108,8 @@ function useImageTexture(url: string | null): THREE.Texture | null {
         setTex(t);
       },
       undefined,
-      () => {
-        // on error — silently ignore, keep existing texture
-      },
+      () => {},
     );
-
     return () => {
       cancelled = true;
     };
@@ -159,12 +153,8 @@ function buildAllWalls(
 ): WallEdge[] {
   const edgeMap = new Map<string, WallEdge>();
 
-  const edgeKey = (x1: number, z1: number, x2: number, z2: number) =>
-    makeWallKey(x1, z1, x2, z2);
-
   for (const room of rooms) {
     const { x, y: rz, width: W, height: D } = room;
-
     const edges: Array<{
       side: WallSide;
       x1: number;
@@ -180,8 +170,7 @@ function buildAllWalls(
     ];
 
     for (const e of edges) {
-      const key = edgeKey(e.x1, e.z1, e.x2, e.z2);
-
+      const key = makeWallKey(e.x1, e.z1, e.x2, e.z2);
       const doorsHere = doors
         .filter((d) => d.roomId === room.id && d.wallSide === e.side)
         .map((d) => ({
@@ -250,7 +239,6 @@ function splitWall(length: number, openings: Opening[]) {
           h: headerH,
         });
     }
-
     cursor = opStart + op.width;
   }
   if (cursor < length)
@@ -259,7 +247,53 @@ function splitWall(length: number, openings: Opening[]) {
   return { solid, openings: sorted };
 }
 
-// ─── Single wall renderer ──────────────────────────────────────────────────────
+// ─── Wall drop zone ───────────────────────────────────────────────────────────
+
+function WallDropZone() {
+  const selectedWallKey = useRoomStore((s) => s.selectedWallKey);
+  const [draggingOver, setDraggingOver] = useState(false);
+
+  useEffect(() => {
+    function onDragOver(e: DragEvent) {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+      setDraggingOver(true);
+    }
+    function onDragLeave(e: DragEvent) {
+      if (e.relatedTarget === null) setDraggingOver(false);
+    }
+    function onDrop(e: DragEvent) {
+      e.preventDefault();
+      setDraggingOver(false);
+      // getState() — ყოველთვის უახლესი მნიშვნელობა, closure არ ჭირდება
+      const { selectedWallKey: key, setWallColor } = useRoomStore.getState();
+      if (!key) return;
+      const id = e.dataTransfer?.getData("wallColorId");
+      const hex = e.dataTransfer?.getData("wallColorHex");
+      const name = e.dataTransfer?.getData("wallColorName") ?? "";
+      if (id && hex) {
+        setWallColor(key, { id, color: hex, name });
+      }
+    }
+
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("dragleave", onDragLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("dragleave", onDragLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
+  if (!selectedWallKey) return null;
+
+  return draggingOver ? (
+    <div className="absolute inset-0 z-10 pointer-events-none rounded-2xl bg-green-500/10 border-4 border-dashed border-green-500" />
+  ) : null;
+}
+
+// ─── Single wall renderer ─────────────────────────────────────────────────────
 
 interface WallMeshProps {
   edge: WallEdge;
@@ -269,6 +303,7 @@ interface WallMeshProps {
   frameMat: THREE.Material;
   doorMat: THREE.Material;
   isSelected: boolean;
+  assignedColor: string | null;
   assignedImageUrl: string | null;
   onSelect: (key: string) => void;
 }
@@ -281,12 +316,11 @@ function WallMesh({
   frameMat,
   doorMat,
   isSelected,
+  assignedColor,
   assignedImageUrl,
   onSelect,
 }: WallMeshProps) {
   const { solid, openings } = splitWall(edge.length, edge.openings);
-
-  // Dynamic texture from assigned material image
   const assignedTex = useImageTexture(assignedImageUrl);
 
   const activeMat = useMemo(() => {
@@ -296,8 +330,14 @@ function WallMesh({
         roughness: 0.85,
       });
     }
+    if (assignedColor) {
+      return new THREE.MeshStandardMaterial({
+        color: assignedColor,
+        roughness: 0.88,
+      });
+    }
     return wallMat;
-  }, [assignedTex, wallMat]);
+  }, [assignedTex, assignedColor, wallMat]);
 
   const segPos = (
     start: number,
@@ -324,9 +364,6 @@ function WallMesh({
 
   return (
     <group>
-      {/* ── Invisible full-wall click target (always present) ── */}
-      {/* visible=false keeps it hidden but raycast still works in R3F */}
-      {/* Thickness 0.5 so ray hits reliably from any camera angle    */}
       <mesh position={segPos(0, edge.length, 0, WALL_H)} onClick={handleClick}>
         {edge.axis === "x" ? (
           <boxGeometry args={[edge.length, WALL_H, 0.5]} />
@@ -336,7 +373,6 @@ function WallMesh({
         <meshBasicMaterial visible={false} />
       </mesh>
 
-      {/* Selection highlight — full wall extent, semi-transparent */}
       {isSelected && (
         <mesh position={segPos(0, edge.length, 0, WALL_H)}>
           {segGeo(edge.length, WALL_H)}
@@ -344,7 +380,6 @@ function WallMesh({
         </mesh>
       )}
 
-      {/* Solid wall segments */}
       {solid.map((s, i) => (
         <mesh
           key={i}
@@ -357,7 +392,6 @@ function WallMesh({
         </mesh>
       ))}
 
-      {/* Door openings: frame + door panel */}
       {openings
         .filter((op) => op.type === "door")
         .map((op, i) => {
@@ -366,7 +400,6 @@ function WallMesh({
           const cz = edge.axis === "x" ? edge.z1 : edge.z1 + localC;
           const FW = 0.06;
           const FD = T + 0.02;
-
           return (
             <group key={`door-${i}`}>
               <mesh
@@ -457,7 +490,6 @@ function WallMesh({
           );
         })}
 
-      {/* Window openings */}
       {openings
         .filter((op) => op.type === "window")
         .map((op, i) => {
@@ -467,7 +499,6 @@ function WallMesh({
           const winY = WIN_SILL + WIN_H / 2;
           const FW = 0.05;
           const FD = T + 0.01;
-
           return (
             <group key={`win-${i}`}>
               <mesh position={[cx, WIN_SILL + FW / 2, cz]} castShadow>
@@ -548,7 +579,6 @@ function RoomSurfaces({ room }: { room: RoomShape }) {
     "#C8A882",
   );
   const ceilColor = materials.ceilingColor || "#F5F0EB";
-
   const W = room.width,
     D = room.height;
   const cx = room.x + W / 2,
@@ -617,10 +647,6 @@ function FurnitureItem({ item }: { item: Furniture }) {
   const { setSelectedFurniture, selectedFurnitureId } = useRoomStore();
   const isSelected = selectedFurnitureId === item.id;
   const meshRef = useRef<THREE.Mesh>(null);
-
-  useFrame(() => {
-    if (meshRef.current && isSelected) meshRef.current.rotation.y += 0.005;
-  });
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
@@ -818,7 +844,6 @@ export default function Scene3D() {
     furniture,
     materials,
     setSelectedFurniture,
-    // Wall selection (add these to your store):
     selectedWallKey,
     wallMaterials,
     setSelectedWall,
@@ -884,7 +909,10 @@ export default function Scene3D() {
   const camDist = bbox.span * 1.2 + 5;
 
   return (
-    <div className="w-full h-full">
+    <div className="w-full h-full relative">
+      {/* Drag & drop zone — კედელზე ფერის ჩასხმა */}
+      <WallDropZone />
+
       <Canvas
         camera={{
           position: [
@@ -897,7 +925,7 @@ export default function Scene3D() {
         shadows
         onPointerMissed={() => {
           setSelectedFurniture(null);
-          setSelectedWall?.(null);
+          // setSelectedWall(null);
         }}
       >
         <ambientLight intensity={0.5} />
@@ -925,7 +953,6 @@ export default function Scene3D() {
 
         {walls.map((edge, i) => {
           const wk = makeWallKey(edge.x1, edge.z1, edge.x2, edge.z2);
-          const assigned = wallMaterials?.[wk];
           return (
             <WallMesh
               key={i}
@@ -936,8 +963,9 @@ export default function Scene3D() {
               frameMat={frameMat}
               doorMat={doorMat}
               isSelected={selectedWallKey === wk}
-              assignedImageUrl={assigned?.material?.image ?? null}
-              onSelect={(key) => setSelectedWall?.(key)}
+              assignedColor={wallMaterials?.[wk]?.color?.color ?? null}
+              assignedImageUrl={wallMaterials?.[wk]?.material?.image ?? null}
+              onSelect={(key) => setSelectedWall(key)}
             />
           );
         })}

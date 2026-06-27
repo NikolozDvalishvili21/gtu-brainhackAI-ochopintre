@@ -1,18 +1,14 @@
 'use client'
-import { useState } from 'react'
-import { useRoomStore, Furniture } from '@/lib/store/room-store'
-import { Armchair, Sofa, BedDouble, TreePine, UtensilsCrossed, Palette, Layers, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { useRoomStore, WallColor } from '../../lib/store/room-store'
+import { Layers, Palette, Sofa, X, Loader2 } from 'lucide-react'
 
-const WALLPAPERS = [
-  { id: 'plain', label: 'გლუვი', colors: ['#F5F0EB', '#E8E2DA', '#D4C5B0', '#C9D8C5', '#C5C9D8', '#D8C5C5'] },
-  { id: 'wallpaper-stripe', label: 'ზოლები', colors: ['#F5F0EB', '#E8D5C4', '#D4E8D4', '#D4D4E8'] },
-  { id: 'wallpaper-dots', label: 'წერტილები', colors: ['#F5F0EB', '#FCF3E8', '#E8F3FC', '#F3E8FC'] },
-]
+const BASE = 'https://interior-materials-api.onrender.com'
 
 const FLOORS = [
-  { id: 'parquet', label: 'პარკეტი' },
-  { id: 'tile', label: 'ფილა' },
-  { id: 'plain', label: 'ბეტონი' },
+  { id: 'parquet', label: 'პარკეტი', icon: '🪵' },
+  { id: 'tile', label: 'ფილა', icon: '⬜' },
+  { id: 'plain', label: 'ბეტონი', icon: '⬛' },
 ]
 
 const FURNITURE_CATALOG = [
@@ -29,40 +25,64 @@ const FURNITURE_CATALOG = [
 type Tab = 'walls' | 'floor' | 'furniture'
 
 export default function Sidebar() {
-  const { materials, setMaterials, addFurniture, rooms, furniture, selectedId, selectedType, removeFurniture, viewMode } = useRoomStore()
+  const {
+    materials, setMaterials,
+    addFurniture, furniture, removeFurniture,
+    selectedFurnitureId, viewMode,
+    selectedWallKey, wallMaterials,
+    setWallColor, clearWallColor,
+    rooms,
+  } = useRoomStore()
+
   const [tab, setTab] = useState<Tab>('walls')
+  const [wallColors, setWallColors] = useState<WallColor[]>([])
+  const [loadingColors, setLoadingColors] = useState(false)
+
+  useEffect(() => {
+    setLoadingColors(true)
+    fetch(`${BASE}/colors`)
+      .then(r => r.json())
+      .then((data: Array<{ id: string; name: string; color: string }>) => {
+        setWallColors(data.map(c => ({ id: c.id, name: c.name, color: c.color })))
+      })
+      .catch(() => {})
+      .finally(() => setLoadingColors(false))
+  }, [])
 
   function handleAddFurniture(item: typeof FURNITURE_CATALOG[0]) {
-    const placeRoom = rooms[0]
-    if (!placeRoom) return
-
-    const newItem: Furniture = {
+    const firstRoom = rooms[0]
+    const cx = firstRoom ? firstRoom.x + firstRoom.width / 2 : 2
+    const cz = firstRoom ? firstRoom.y + firstRoom.height / 2 : 2
+    addFurniture({
       id: Date.now().toString(),
       type: item.type,
       label: item.label,
-      x: placeRoom.x + Math.random() * Math.max(0, placeRoom.width - item.width),
+      x: cx + (Math.random() - 0.5) * 2,
       y: 0,
-      z: placeRoom.y + Math.random() * Math.max(0, placeRoom.height - item.depth),
+      z: cz + (Math.random() - 0.5) * 2,
       rotation: 0,
       width: item.width,
       depth: item.depth,
       height: item.height,
       color: item.color,
-    }
-    addFurniture(newItem)
+    })
   }
+
+  const currentAssignment = selectedWallKey ? wallMaterials[selectedWallKey] : null
+  const currentColor = currentAssignment?.color ?? null
 
   if (viewMode === '2d') return null
 
   return (
     <div className="w-72 h-full bg-white border-l border-gray-100 flex flex-col overflow-hidden">
+
       {/* Tabs */}
       <div className="flex border-b border-gray-100">
         {([
           { id: 'walls', label: 'კედლები', icon: <Layers size={14} /> },
           { id: 'floor', label: 'იატაკი', icon: <Palette size={14} /> },
           { id: 'furniture', label: 'ავეჯი', icon: <Sofa size={14} /> },
-        ] as {id: Tab, label: string, icon: React.ReactNode}[]).map(t => (
+        ] as { id: Tab; label: string; icon: React.ReactNode }[]).map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
             className={`flex-1 py-3 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors
               ${tab === t.id ? 'text-brand border-b-2 border-brand' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -71,80 +91,144 @@ export default function Sidebar() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className="flex-1 overflow-y-auto p-3 space-y-4">
 
+        {/* ── WALLS ── */}
         {tab === 'walls' && (
           <div className="space-y-4">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">შპალერი / ფერი</p>
-            {WALLPAPERS.map(wp => (
-              <div key={wp.id}>
-                <p className="text-xs text-gray-600 mb-2">{wp.label}</p>
-                <div className="flex flex-wrap gap-2">
-                  {wp.colors.map(color => (
-                    <button key={color}
-                      onClick={() => setMaterials({ wallTexture: wp.id, wallColor: color })}
-                      className={`w-8 h-8 rounded-lg border-2 transition-all hover:scale-110
-                        ${materials.wallColor === color && materials.wallTexture === wp.id
-                          ? 'border-brand scale-110' : 'border-gray-200'}`}
-                      style={{ background: color }}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
 
-            <div className="pt-2 border-t border-gray-100">
-              <p className="text-xs text-gray-600 mb-2">ჭერის ფერი</p>
+            {/* Selected wall status */}
+            {selectedWallKey ? (
+              <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-brand">კედელი მონიშნულია</p>
+                  {currentColor && (
+                    <button
+                      onClick={() => clearWallColor(selectedWallKey)}
+                      className="text-xs text-gray-400 hover:text-red-400 transition-colors">
+                      გასუფთავება
+                    </button>
+                  )}
+                </div>
+                {currentColor ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg border border-gray-200 shadow-sm flex-shrink-0"
+                      style={{ background: currentColor.color }} />
+                    <span className="text-xs text-gray-700">{currentColor.name}</span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400">ქვემოდან აირჩიე ფერი</p>
+                )}
+              </div>
+            ) : (
+              <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-3 text-center">
+                <p className="text-xs text-gray-400">3D-ში კლიკე კედელზე</p>
+                <p className="text-xs text-gray-300 mt-0.5">შემდეგ აირჩიე ფერი</p>
+              </div>
+            )}
+
+            {/* Color swatches */}
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+                საღებავის ფერები
+              </p>
+
+              {loadingColors ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 size={20} className="animate-spin text-gray-300" />
+                </div>
+              ) : (
+                <>
+                  {/* Grid swatches */}
+                  <div className="grid grid-cols-5 gap-2 mb-3">
+                    {wallColors.map(c => {
+                      const isActive = currentColor?.id === c.id
+                      return (
+                        <button
+                          key={c.id}
+                          title={c.name}
+                          disabled={!selectedWallKey}
+                          onClick={() => selectedWallKey && setWallColor(selectedWallKey, c)}
+                          className={`relative aspect-square rounded-lg border-2 transition-all
+                            ${isActive
+                              ? 'border-brand scale-110 shadow-md'
+                              : 'border-gray-200 hover:border-gray-400 hover:scale-105'}
+                            ${!selectedWallKey ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+                          style={{ background: c.color }}
+                        >
+                          {isActive && (
+                            <span className="absolute inset-0 flex items-center justify-center text-xs font-bold drop-shadow"
+                              style={{ color: isDark(c.color) ? '#fff' : '#1a1a1a' }}>
+                              ✓
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* List with names */}
+                  <div className="space-y-0.5 max-h-48 overflow-y-auto">
+                    {wallColors.map(c => {
+                      const isActive = currentColor?.id === c.id
+                      return (
+                        <button
+                          key={c.id}
+                          disabled={!selectedWallKey}
+                          onClick={() => selectedWallKey && setWallColor(selectedWallKey, c)}
+                          className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-colors text-left
+                            ${isActive ? 'bg-brand/10 text-brand font-medium' : 'hover:bg-gray-50 text-gray-600'}
+                            ${!selectedWallKey ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                          <div className="w-5 h-5 rounded-md border border-gray-200 flex-shrink-0 shadow-sm"
+                            style={{ background: c.color }} />
+                          <span className="truncate">{c.name}</span>
+                          {isActive && <span className="ml-auto text-brand">✓</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Ceiling color */}
+            <div className="pt-3 border-t border-gray-100">
+              <p className="text-xs text-gray-500 font-medium mb-2">ჭერის ფერი</p>
               <div className="flex gap-2">
                 {['#FFFFFF', '#F5F0EB', '#F0EBE0', '#E8E8E8'].map(c => (
-                  <button key={c} onClick={() => setMaterials({ ceilingColor: c })}
+                  <button key={c}
+                    onClick={() => setMaterials({ ceilingColor: c })}
                     className={`w-8 h-8 rounded-lg border-2 transition-all hover:scale-110
                       ${materials.ceilingColor === c ? 'border-brand scale-110' : 'border-gray-200'}`}
                     style={{ background: c }} />
                 ))}
               </div>
             </div>
-
-            <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500 border border-gray-100">
-              <p className="font-medium text-gray-700 mb-1">პარტნიორები</p>
-              <p className="mb-2">შპალერი ჩვენი პარტნიორი კომპანიებისგან:</p>
-              {['Dekor+', 'WallArt GE', 'InteriorPro'].map(p => (
-                <div key={p} className="flex items-center justify-between py-1">
-                  <span>{p}</span>
-                  <span className="text-brand cursor-pointer hover:underline">კატალოგი →</span>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 
+        {/* ── FLOOR ── */}
         {tab === 'floor' && (
           <div className="space-y-3">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">იატაკის მასალა</p>
             {FLOORS.map(f => (
-              <button key={f.id} onClick={() => setMaterials({ floorTexture: f.id })}
+              <button key={f.id}
+                onClick={() => setMaterials({ floorTexture: f.id })}
                 className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left
                   ${materials.floorTexture === f.id ? 'border-brand bg-green-50' : 'border-gray-100 hover:border-gray-200'}`}>
                 <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-lg">
-                  {f.id === 'parquet' ? '🪵' : f.id === 'tile' ? '⬜' : '⬛'}
+                  {f.icon}
                 </div>
                 <span className="text-sm font-medium text-gray-700">{f.label}</span>
-                {materials.floorTexture === f.id && <span className="ml-auto text-brand text-xs">✓</span>}
+                {materials.floorTexture === f.id && (
+                  <span className="ml-auto text-brand text-xs font-medium">✓</span>
+                )}
               </button>
             ))}
-
-            <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500 border border-gray-100 mt-4">
-              <p className="font-medium text-gray-700 mb-1">პარტნიორები</p>
-              {['FloorMaster', 'Parquet GE', 'TileWorld'].map(p => (
-                <div key={p} className="flex items-center justify-between py-1">
-                  <span>{p}</span>
-                  <span className="text-brand cursor-pointer hover:underline">კატალოგი →</span>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 
+        {/* ── FURNITURE ── */}
         {tab === 'furniture' && (
           <div className="space-y-3">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">ავეჯი დაამატე</p>
@@ -166,10 +250,10 @@ export default function Sidebar() {
                   {furniture.map(f => (
                     <div key={f.id}
                       className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors
-                        ${selectedType === 'furniture' && selectedId === f.id ? 'bg-green-50 border border-brand' : 'hover:bg-gray-50'}`}>
-                      <span className="text-gray-700">{f.label}</span>
+                        ${selectedFurnitureId === f.id ? 'bg-green-50 border border-brand' : 'hover:bg-gray-50'}`}>
+                      <span className="text-gray-700 text-xs">{f.label}</span>
                       <button onClick={() => removeFurniture(f.id)}
-                        className="text-gray-300 hover:text-red-400 transition-colors">
+                        className="text-gray-300 hover:text-red-400 transition-colors ml-2">
                         <X size={14} />
                       </button>
                     </div>
@@ -182,4 +266,12 @@ export default function Sidebar() {
       </div>
     </div>
   )
+}
+
+// helper: is hex color dark?
+function isDark(hex: string): boolean {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return (r * 299 + g * 587 + b * 114) / 1000 < 128
 }

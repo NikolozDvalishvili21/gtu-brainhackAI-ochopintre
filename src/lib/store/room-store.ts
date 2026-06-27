@@ -72,8 +72,17 @@ export interface MaterialChoice {
 
 // ─── Wall material assignment ─────────────────────────────────────────────────
 
+export interface WallColor {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface WallMaterialAssignment {
-  material: {
+  // paint color (from /colors API)
+  color?: WallColor;
+  // material with image (from /materials API)
+  material?: {
     id: string;
     name: string;
     image: string;
@@ -82,7 +91,7 @@ export interface WallMaterialAssignment {
     unit: string;
     category: string;
   };
-  wallArea: number; // მ²
+  wallArea?: number;
 }
 
 // ─── Store interface ──────────────────────────────────────────────────────────
@@ -130,11 +139,12 @@ interface EditorStore {
   // ── Wall material actions ─────────────────────────────────────────────────
   setSelectedWall: (key: string | null) => void;
   setSelectedFurniture: (id: string | null) => void;
-  setWallMaterial: (
-    wallKey: string,
-    assignment: WallMaterialAssignment,
-  ) => void;
+  setWallMaterial: (wallKey: string, assignment: WallMaterialAssignment) => void;
   clearWallMaterial: (wallKey: string) => void;
+
+  // ── Convenience: set only color ───────────────────────────────────────────
+  setWallColor: (wallKey: string, color: WallColor) => void;
+  clearWallColor: (wallKey: string) => void;
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -168,12 +178,9 @@ export const useRoomStore = create<EditorStore>((set) => ({
   roomGenerated: false,
   room: { width: 6, height: 5 },
 
-  // Wall selection state
   selectedWallKey: null,
   selectedFurnitureId: null,
   wallMaterials: {},
-
-  // ── Existing actions ──────────────────────────────────────────────────────
 
   setViewMode: (m) => set({ viewMode: m }),
   setActiveTool: (t) => set({ activeTool: t }),
@@ -199,9 +206,7 @@ export const useRoomStore = create<EditorStore>((set) => ({
 
   addPartition: (p) => set((s) => ({ partitions: [...s.partitions, p] })),
   removePartition: (id) =>
-    set((s) => ({
-      partitions: s.partitions.filter((p) => p.id !== id),
-    })),
+    set((s) => ({ partitions: s.partitions.filter((p) => p.id !== id) })),
 
   addDoor: (d) => set((s) => ({ doors: [...s.doors, d] })),
   removeDoor: (id) =>
@@ -209,17 +214,13 @@ export const useRoomStore = create<EditorStore>((set) => ({
 
   addWindow: (w) => set((s) => ({ windows: [...s.windows, w] })),
   removeWindow: (id) =>
-    set((s) => ({
-      windows: s.windows.filter((w) => w.id !== id),
-    })),
+    set((s) => ({ windows: s.windows.filter((w) => w.id !== id) })),
 
   setSelected: (id, type) => set({ selectedId: id, selectedType: type }),
 
   addFurniture: (item) => set((s) => ({ furniture: [...s.furniture, item] })),
   removeFurniture: (id) =>
-    set((s) => ({
-      furniture: s.furniture.filter((f) => f.id !== id),
-    })),
+    set((s) => ({ furniture: s.furniture.filter((f) => f.id !== id) })),
   updateFurniture: (id, u) =>
     set((s) => ({
       furniture: s.furniture.map((f) => (f.id === id ? { ...f, ...u } : f)),
@@ -243,20 +244,11 @@ export const useRoomStore = create<EditorStore>((set) => ({
       wallMaterials: {},
     }),
 
-  // ── Wall material actions ─────────────────────────────────────────────────
-
-  // Selecting a wall deselects furniture, and vice-versa
   setSelectedWall: (key) =>
-    set({
-      selectedWallKey: key,
-      selectedFurnitureId: null,
-    }),
+    set({ selectedWallKey: key, selectedFurnitureId: null }),
 
   setSelectedFurniture: (id) =>
-    set({
-      selectedFurnitureId: id,
-      selectedWallKey: null,
-    }),
+    set({ selectedFurnitureId: id, selectedWallKey: null }),
 
   setWallMaterial: (wallKey, assignment) =>
     set((s) => ({
@@ -267,6 +259,25 @@ export const useRoomStore = create<EditorStore>((set) => ({
     set((s) => {
       const next = { ...s.wallMaterials };
       delete next[wallKey];
+      return { wallMaterials: next };
+    }),
+
+  setWallColor: (wallKey, color) =>
+    set((s) => ({
+      wallMaterials: {
+        ...s.wallMaterials,
+        [wallKey]: { ...s.wallMaterials[wallKey], color },
+      },
+    })),
+
+  clearWallColor: (wallKey) =>
+    set((s) => {
+      const next = { ...s.wallMaterials };
+      if (next[wallKey]) {
+        const { color, ...rest } = next[wallKey];
+        if (Object.keys(rest).length === 0) delete next[wallKey];
+        else next[wallKey] = rest;
+      }
       return { wallMaterials: next };
     }),
 }));
