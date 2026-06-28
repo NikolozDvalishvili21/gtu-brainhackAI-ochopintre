@@ -1036,6 +1036,7 @@ export default function Scene3D() {
     selectedWallKey,
     wallMaterials,
     setSelectedWall,
+    setWallKeys,
   } = useRoomStore();
 
   const wallTex = useProceduralTexture(
@@ -1075,6 +1076,15 @@ export default function Scene3D() {
     () => buildAllWalls(rooms, doors as Door[], windows as any),
     [rooms, doors, windows],
   );
+
+  // ყველა კედლის key-ის რეგისტრაცია store-ში („ყველა კედელზე გადატანისთვის")
+  const wallKeysArr = useMemo(
+    () => walls.map((e) => makeWallKey(e.x1, e.z1, e.x2, e.z2)),
+    [walls],
+  );
+  useEffect(() => {
+    setWallKeys(wallKeysArr);
+  }, [wallKeysArr, setWallKeys]);
 
   const bbox = useMemo(() => {
     if (rooms.length === 0) return { cx: 4, cz: 4, span: 8 };

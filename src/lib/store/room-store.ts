@@ -134,6 +134,7 @@ interface EditorStore {
   selectedFurnitureId: string | null;
   transformMode: TransformMode;
   wallMaterials: Record<string, WallMaterialAssignment>;
+  wallKeys: string[]; // სცენაში არსებული ყველა კედლის key (Scene3D-დან)
 
   // ── Floor selection & per-room floor material ────────────────────────────
   selectedFloorRoomId: string | null;
@@ -166,6 +167,8 @@ interface EditorStore {
   setTransformMode: (m: TransformMode) => void;
   setWallMaterial: (wallKey: string, assignment: WallMaterialAssignment) => void;
   clearWallMaterial: (wallKey: string) => void;
+  setWallKeys: (keys: string[]) => void;
+  applyWallToAll: (sourceKey: string) => void;
 
   // ── Convenience: set only color ───────────────────────────────────────────
   setWallColor: (wallKey: string, color: WallColor) => void;
@@ -232,6 +235,7 @@ export const useRoomStore = create<EditorStore>((set) => ({
   selectedFurnitureId: null,
   transformMode: "translate",
   wallMaterials: {},
+  wallKeys: [],
 
   selectedFloorRoomId: null,
   floorMaterials: {},
@@ -325,6 +329,17 @@ export const useRoomStore = create<EditorStore>((set) => ({
     set((s) => {
       const next = { ...s.wallMaterials };
       delete next[wallKey];
+      return { wallMaterials: next };
+    }),
+
+  setWallKeys: (keys) => set({ wallKeys: keys }),
+
+  applyWallToAll: (sourceKey) =>
+    set((s) => {
+      const src = s.wallMaterials[sourceKey];
+      if (!src) return {};
+      const next = { ...s.wallMaterials };
+      for (const k of s.wallKeys) next[k] = { ...src };
       return { wallMaterials: next };
     }),
 

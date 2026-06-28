@@ -1,8 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useRoomStore, WallColor, MaterialRef, type Crop } from '../../lib/store/room-store'
+import { useRoomStore, WallColor, MaterialRef, type Crop, type WallMaterialAssignment } from '../../lib/store/room-store'
 import CropEditor from './CropEditor'
-import { Crop as CropIcon } from 'lucide-react'
+import { Crop as CropIcon, Copy, ClipboardPaste, CopyCheck } from 'lucide-react'
 import { FURNITURE_CATALOG_LIST } from '@/lib/constants/furniture-catalog'
 import { placeSingleItem } from '@/lib/studio/furniture-layout'
 import { Layers, Palette, Sofa, X, Loader2 } from 'lucide-react'
@@ -28,12 +28,14 @@ export default function Sidebar() {
     selectedFloorRoomId, floorMaterials, setFloorMaterial, clearFloorMaterial,
     setWallTexRepeat, setFloorTexRepeat,
     setWallCrop, setFloorCrop,
+    applyWallToAll,
     rooms,
   } = useRoomStore()
 
   const [cropTarget, setCropTarget] = useState<
     { image: string; crop?: Crop; apply: (c: Crop) => void } | null
   >(null)
+  const [wallClip, setWallClip] = useState<WallMaterialAssignment | null>(null)
 
   const [tab, setTab] = useState<Tab>('walls')
   const [wallColors, setWallColors] = useState<WallColor[]>([])
@@ -164,6 +166,32 @@ export default function Sidebar() {
                 <p className="text-xs text-gray-400">3D-ში კლიკე კედელზე</p>
                 <p className="text-xs text-gray-300 mt-0.5">შემდეგ აირჩიე ფერი</p>
               </div>
+            )}
+
+            {/* ვიზუალის გადატანა სხვა კედლებზე */}
+            {selectedWallKey && (currentColor || currentMaterial) && (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => applyWallToAll(selectedWallKey)}
+                  className="flex items-center justify-center gap-1.5 rounded-xl bg-brand/10 py-2 text-xs font-medium text-brand hover:bg-brand/20"
+                >
+                  <CopyCheck size={13} /> ყველა კედელზე
+                </button>
+                <button
+                  onClick={() => setWallClip(currentAssignment ?? null)}
+                  className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  <Copy size={13} /> კოპირება
+                </button>
+              </div>
+            )}
+            {selectedWallKey && wallClip && currentAssignment !== wallClip && (
+              <button
+                onClick={() => setWallMaterial(selectedWallKey, wallClip)}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-brand/40 py-2 text-xs font-medium text-brand hover:bg-brand/5"
+              >
+                <ClipboardPaste size={13} /> ჩასმა აქ
+              </button>
             )}
 
             {/* Color swatches */}
