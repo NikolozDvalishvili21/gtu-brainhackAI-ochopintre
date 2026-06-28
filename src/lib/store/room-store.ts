@@ -140,6 +140,9 @@ interface EditorStore {
   selectedFloorRoomId: string | null;
   floorMaterials: Record<string, MaterialRef>;
 
+  // ── First-person ("ადამიანის ხედი") ────────────────────────────────────────
+  firstPerson: boolean;
+
   // ── Actions ───────────────────────────────────────────────────────────────
   setViewMode: (m: ViewMode) => void;
   setActiveTool: (t: Tool) => void;
@@ -190,6 +193,9 @@ interface EditorStore {
   // ── 2D plan scan ─────────────────────────────────────────────────────────
   applyScannedRooms: (rooms: RoomShape[]) => void;
 
+  // ── First-person ───────────────────────────────────────────────────────────
+  setFirstPerson: (v: boolean) => void;
+
   hydrateFromBrief: (patch: {
     rooms?: RoomShape[];
     furniture?: Furniture[];
@@ -239,6 +245,8 @@ export const useRoomStore = create<EditorStore>((set) => ({
 
   selectedFloorRoomId: null,
   floorMaterials: {},
+
+  firstPerson: false,
 
   setViewMode: (m) => set({ viewMode: m }),
   setActiveTool: (t) => set({ activeTool: t }),
@@ -319,6 +327,8 @@ export const useRoomStore = create<EditorStore>((set) => ({
     }),
 
   setTransformMode: (m) => set({ transformMode: m }),
+
+  setFirstPerson: (v) => set({ firstPerson: v }),
 
   setWallMaterial: (wallKey, assignment) =>
     set((s) => ({

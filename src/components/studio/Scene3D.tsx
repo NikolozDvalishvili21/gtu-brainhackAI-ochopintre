@@ -1,7 +1,13 @@
 "use client";
 import { useRef, useMemo, useState, useEffect, Suspense } from "react";
-import { Canvas, ThreeEvent } from "@react-three/fiber";
-import { OrbitControls, Environment, useGLTF, TransformControls } from "@react-three/drei";
+import { Canvas, ThreeEvent, useThree, useFrame } from "@react-three/fiber";
+import {
+  OrbitControls,
+  Environment,
+  useGLTF,
+  TransformControls,
+  PointerLockControls,
+} from "@react-three/drei";
 import * as THREE from "three";
 import {
   useRoomStore,
@@ -1018,6 +1024,75 @@ function Ground() {
   );
 }
 
+// ─── First-person walk ────────────────────────────────────────────────────────
+
+const EYE_H = 1.6;
+
+function FirstPersonMovement({
+  bbox,
+}: {
+  bbox: { cx: number; cz: number; span: number };
+}) {
+  const { camera } = useThree();
+  const keys = useRef<Record<string, boolean>>({});
+
+  useEffect(() => {
+    // საწყისი პოზიცია — ოთახის ცენტრი, თვალის სიმაღლეზე, ჰორიზონტალური ხედი
+    camera.position.set(bbox.cx, EYE_H, bbox.cz);
+    camera.lookAt(bbox.cx, EYE_H, bbox.cz - 1);
+
+    const down = (e: KeyboardEvent) => {
+      keys.current[e.code] = true;
+    };
+    const up = (e: KeyboardEvent) => {
+      keys.current[e.code] = false;
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      keys.current = {};
+    };
+  }, [camera, bbox.cx, bbox.cz]);
+
+  useFrame((_, delta) => {
+    const k = keys.current;
+    const fwd =
+      (k["KeyW"] || k["ArrowUp"] ? 1 : 0) - (k["KeyS"] || k["ArrowDown"] ? 1 : 0);
+    const str =
+      (k["KeyD"] || k["ArrowRight"] ? 1 : 0) -
+      (k["KeyA"] || k["ArrowLeft"] ? 1 : 0);
+    if (fwd === 0 && str === 0) return;
+
+    const speed = 3 * delta;
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    dir.y = 0;
+    dir.normalize();
+    const right = new THREE.Vector3()
+      .crossVectors(dir, new THREE.Vector3(0, 1, 0))
+      .normalize();
+
+    camera.position.addScaledVector(dir, fwd * speed);
+    camera.position.addScaledVector(right, str * speed);
+    camera.position.y = EYE_H;
+
+    // ოთახის საზღვრებში შენარჩუნება
+    const half = bbox.span / 2 + 1;
+    camera.position.x = Math.min(
+      bbox.cx + half,
+      Math.max(bbox.cx - half, camera.position.x),
+    );
+    camera.position.z = Math.min(
+      bbox.cz + half,
+      Math.max(bbox.cz - half, camera.position.z),
+    );
+  });
+
+  return null;
+}
+
 // ─── Scene ────────────────────────────────────────────────────────────────────
 
 export default function Scene3D() {
@@ -1037,6 +1112,8 @@ export default function Scene3D() {
     wallMaterials,
     setSelectedWall,
     setWallKeys,
+    firstPerson,
+    setFirstPerson,
   } = useRoomStore();
 
   const wallTex = useProceduralTexture(
@@ -1180,18 +1257,50 @@ export default function Scene3D() {
           <FurnitureItem key={item.id} item={item} />
         ))}
 
-        <OrbitControls
-          makeDefault
-          target={[bbox.cx, 1.2, bbox.cz]}
-          maxPolarAngle={Math.PI / 2.05}
-          minDistance={2}
-          maxDistance={50}
-        />
+        {firstPerson ? (
+          <>
+            <FirstPersonMovement bbox={bbox} />
+            <PointerLockControls />
+          </>
+        ) : (
+          <OrbitControls
+            makeDefault
+            target={[bbox.cx, 1.2, bbox.cz]}
+            maxPolarAngle={Math.PI / 2.05}
+            minDistance={2}
+            maxDistance={50}
+          />
+        )}
         <Environment preset="apartment" />
       </Canvas>
 
+      {/* ადამიანის ხედის ღილაკი */}
+      {!firstPerson && (
+        <button
+          onClick={() => setFirstPerson(true)}
+          className="absolute right-4 top-4 z-10 flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 text-xs font-medium text-gray-700 shadow-lg backdrop-blur hover:bg-gray-50"
+        >
+          👁 ადამიანის ხედი
+        </button>
+      )}
+
+      {/* walk mode overlay */}
+      {firstPerson && (
+        <>
+          <div className="pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-xl bg-black/70 px-4 py-2 text-center text-xs text-white backdrop-blur">
+            დააკლიკე სცენას შესასვლელად · <b>WASD / ისრები</b> — სიარული · <b>მაუსი</b> — ყურება · <b>Esc</b> — კურსორი
+          </div>
+          <button
+            onClick={() => setFirstPerson(false)}
+            className="absolute right-4 top-4 z-10 rounded-xl bg-white/95 px-3 py-2 text-xs font-medium text-gray-700 shadow-lg backdrop-blur hover:bg-gray-50"
+          >
+            ✕ გასვლა
+          </button>
+        </>
+      )}
+
       {/* ავეჯის მართვის toolbar (ჩანს როცა ავეჯი მონიშნულია) */}
-      {selectedFurnitureId && (
+      {selectedFurnitureId && !firstPerson && (
         <div className="absolute left-1/2 bottom-5 z-10 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
           {([
             { m: "translate" as const, label: "გადატანა", icon: "✥" },
