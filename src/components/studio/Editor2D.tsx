@@ -22,8 +22,29 @@ type PanState = { startX: number; startY: number; origPanX: number; origPanY: nu
 function snapV(v: number) { return Math.round(v / GRID) * GRID }
 function toPx(m: number) { return m * SCALE }
 
+// ხის იატაკის პატერნი (canvas tile)
+function makeWoodPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
+  const t = document.createElement('canvas')
+  t.width = 64; t.height = 26
+  const c = t.getContext('2d')
+  if (!c) return null
+  c.fillStyle = '#cdaa78'
+  c.fillRect(0, 0, 64, 26)
+  c.strokeStyle = '#b1875a'; c.lineWidth = 1
+  c.beginPath(); c.moveTo(0, 0.5); c.lineTo(64, 0.5); c.stroke()
+  c.beginPath(); c.moveTo(0, 25.5); c.lineTo(64, 25.5); c.stroke()
+  c.beginPath(); c.moveTo(32, 0); c.lineTo(32, 26); c.stroke()
+  c.strokeStyle = 'rgba(150,110,70,0.22)'; c.lineWidth = 0.8
+  for (let i = 0; i < 5; i++) {
+    const y = 4 + i * 4.2
+    c.beginPath(); c.moveTo(0, y); c.bezierCurveTo(22, y + 1.2, 42, y - 1.2, 64, y); c.stroke()
+  }
+  return ctx.createPattern(t, 'repeat')
+}
+
 export default function Editor2D() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const woodPatternRef = useRef<CanvasPattern | null>(null)
   const store = useRoomStore()
   const {
     rooms, partitions, doors, windows, activeTool, setActiveTool,
@@ -138,6 +159,9 @@ export default function Editor2D() {
     const ctx = canvas.getContext('2d')!
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H)
 
+    if (!woodPatternRef.current) woodPatternRef.current = makeWoodPattern(ctx)
+    const wood = woodPatternRef.current
+
     ctx.fillStyle = '#F8F7F4'
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
 
@@ -159,19 +183,35 @@ export default function Editor2D() {
       const rx = wx(room.x), ry = wy(room.y), rw = ws(room.width), rh = ws(room.height)
       const isSel = selectedId === room.id && selectedType === 'room'
 
+      // ხის იატაკი + ოთახის ფერის სუბტილური ტონი
+      ctx.fillStyle = (wood as CanvasPattern | null) ?? room.color
+      ctx.fillRect(rx, ry, rw, rh)
+      ctx.save()
+      ctx.globalAlpha = 0.16
       ctx.fillStyle = room.color
       ctx.fillRect(rx, ry, rw, rh)
+      ctx.restore()
 
       ctx.strokeStyle = isSel ? '#2D6A4F' : '#1a1a1a'
       ctx.lineWidth = (isSel ? WALL_T + 2 : WALL_T) * zoom
       ctx.strokeRect(rx, ry, rw, rh)
 
       if (zoom > 0.5) {
-        ctx.fillStyle = '#6B7280'
-        ctx.font = `${11 * zoom}px Inter, sans-serif`
         ctx.textAlign = 'center'
-        ctx.fillText(room.label, rx + rw / 2, ry + rh / 2)
+        // ოთახის სახელი + ფართობი (მ²) — ნახევრად-გამჭვირვალე badge-ზე
+        const area = room.width * room.height
+        const cyc = ry + rh / 2
+        ctx.fillStyle = 'rgba(255,255,255,0.78)'
+        const bw = Math.min(rw - 8, 92 * zoom)
+        ctx.fillRect(rx + rw / 2 - bw / 2, cyc - 17 * zoom, bw, 32 * zoom)
+        ctx.fillStyle = '#374151'
+        ctx.font = `600 ${11 * zoom}px Inter, sans-serif`
+        ctx.fillText(room.label, rx + rw / 2, cyc - 3 * zoom)
+        ctx.fillStyle = '#6B7280'
+        ctx.font = `${9.5 * zoom}px Inter, sans-serif`
+        ctx.fillText(`${area.toFixed(1)} მ²`, rx + rw / 2, cyc + 11 * zoom)
         ctx.fillStyle = '#9CA3AF'
+        ctx.font = `${11 * zoom}px Inter, sans-serif`
         ctx.fillText(`${room.width}მ`, rx + rw / 2, ry - 8 * zoom)
         ctx.save()
         ctx.translate(rx - 12 * zoom, ry + rh / 2)

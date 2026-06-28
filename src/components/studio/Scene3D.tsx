@@ -192,64 +192,84 @@ function buildAllWalls(
     width: number;
   }>,
 ): WallEdge[] {
-  const edgeMap = new Map<string, WallEdge>();
+  // ─── Group walls by line, then merge overlapping intervals (union) ────────
+  // ორი ოთახის საერთო ან გადამფარავი კედელი ერთ ხაზზე ხვდება. ვაჯგუფებთ
+  // ხაზის (axis + perp კოორდინატი) მიხედვით და ვაერთიანებთ ინტერვალებს →
+  // საერთო კედელი ერთხელ იხატება (აღარ არის ორმაგი კედელი / ტექსტურის z-fight).
+  type RawOpening = { type: "door" | "window"; absStart: number; width: number };
+  type Line = {
+    axis: "x" | "z";
+    perp: number;
+    segs: Array<{ lo: number; hi: number }>;
+    openings: RawOpening[];
+  };
+  const lines = new Map<string, Line>();
+  const lineKey = (axis: "x" | "z", perp: number) =>
+    `${axis}:${Math.round(perp * 1000)}`;
 
   for (const room of rooms) {
     const { x, y: rz, width: W, height: D } = room;
     const edges: Array<{
       side: WallSide;
-      x1: number;
-      z1: number;
-      x2: number;
-      z2: number;
       axis: "x" | "z";
+      perp: number;
+      lo: number;
+      hi: number;
+      base: number; // openings offset-ის საწყისი (x ან z)
     }> = [
-      { side: "top", x1: x, z1: rz, x2: x + W, z2: rz, axis: "x" },
-      { side: "bottom", x1: x, z1: rz + D, x2: x + W, z2: rz + D, axis: "x" },
-      { side: "left", x1: x, z1: rz, x2: x, z2: rz + D, axis: "z" },
-      { side: "right", x1: x + W, z1: rz, x2: x + W, z2: rz + D, axis: "z" },
+      { side: "top", axis: "x", perp: rz, lo: x, hi: x + W, base: x },
+      { side: "bottom", axis: "x", perp: rz + D, lo: x, hi: x + W, base: x },
+      { side: "left", axis: "z", perp: x, lo: rz, hi: rz + D, base: rz },
+      { side: "right", axis: "z", perp: x + W, lo: rz, hi: rz + D, base: rz },
     ];
 
     for (const e of edges) {
-      const key = makeWallKey(e.x1, e.z1, e.x2, e.z2);
-      const doorsHere = doors
-        .filter((d) => d.roomId === room.id && d.wallSide === e.side)
-        .map((d) => ({
-          type: "door" as const,
-          start: d.offset,
-          width: d.width,
-        }));
-      const winsHere = windows
-        .filter((w) => w.roomId === room.id && w.wallSide === e.side)
-        .map((w) => ({
-          type: "window" as const,
-          start: w.offset,
-          width: w.width,
-        }));
-
-      if (!edgeMap.has(key)) {
-        edgeMap.set(key, {
-          x1: e.x1,
-          z1: e.z1,
-          x2: e.x2,
-          z2: e.z2,
-          length:
-            e.axis === "x" ? Math.abs(e.x2 - e.x1) : Math.abs(e.z2 - e.z1),
-          axis: e.axis,
-          openings: [...doorsHere, ...winsHere],
-        });
-      } else {
-        edgeMap.get(key)!.openings.push(...doorsHere, ...winsHere);
+      const k = lineKey(e.axis, e.perp);
+      let line = lines.get(k);
+      if (!line) {
+        line = { axis: e.axis, perp: e.perp, segs: [], openings: [] };
+        lines.set(k, line);
       }
+      line.segs.push({ lo: e.lo, hi: e.hi });
+      for (const d of doors)
+        if (d.roomId === room.id && d.wallSide === e.side)
+          line.openings.push({ type: "door", absStart: e.base + d.offset, width: d.width });
+      for (const w of windows)
+        if (w.roomId === room.id && w.wallSide === e.side)
+          line.openings.push({ type: "window", absStart: e.base + w.offset, width: w.width });
+    }
+  }
+
+  const EPS = 1e-3;
+  const all: WallEdge[] = [];
+  for (const line of Array.from(lines.values())) {
+    const sorted = [...line.segs].sort((a, b) => a.lo - b.lo);
+    const merged: Array<{ lo: number; hi: number }> = [];
+    for (const s of sorted) {
+      const last = merged[merged.length - 1];
+      if (last && s.lo <= last.hi + EPS) last.hi = Math.max(last.hi, s.hi);
+      else merged.push({ lo: s.lo, hi: s.hi });
+    }
+    for (const seg of merged) {
+      const seen = new Set<string>();
+      const ops: Opening[] = [];
+      for (const o of line.openings) {
+        if (o.absStart + EPS < seg.lo || o.absStart - EPS > seg.hi) continue;
+        const sig = `${Math.round(o.absStart * 100)}:${Math.round(o.width * 100)}`;
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        ops.push({ type: o.type, start: o.absStart - seg.lo, width: o.width });
+      }
+      all.push(
+        line.axis === "x"
+          ? { x1: seg.lo, z1: line.perp, x2: seg.hi, z2: line.perp, length: seg.hi - seg.lo, axis: "x", openings: ops }
+          : { x1: line.perp, z1: seg.lo, x2: line.perp, z2: seg.hi, length: seg.hi - seg.lo, axis: "z", openings: ops },
+      );
     }
   }
 
   // ─── Corner join ──────────────────────────────────────────────────────────
-  // ყველა კედელი სრულ სიგრძეზეა → კუთხეებში ბოქსები ერთმანეთს ედება და
-  // ტექსტურა იკვეთება. გადაწყვეტა: X-კედლები T/2-ით გავაგრძელოთ ბოლოებში,
-  // Z-კედლები T/2-ით შევამციროთ — ისე რომ კუთხეში ზუსტად შეერთდნენ
-  // (X კედელი ფარავს კუთხეს, Z კედელი მის შიდა წახნაგს ებჯინება). გადაფარვა 0.
-  const all = Array.from(edgeMap.values());
+  // X-კედლები T/2-ით გავაგრძელოთ, Z-კედლები T/2-ით შევამციროთ — სუფთა კუთხე.
   const H = T / 2;
   for (const e of all) {
     if (e.axis === "x") {
@@ -371,6 +391,7 @@ interface WallMeshProps {
   assignedImageUrl: string | null;
   assignedRepeat: number;
   assignedCrop?: Crop;
+  wallIndex: number;
   onSelect: (key: string) => void;
 }
 
@@ -386,6 +407,7 @@ function WallMesh({
   assignedImageUrl,
   assignedRepeat,
   assignedCrop,
+  wallIndex,
   onSelect,
 }: WallMeshProps) {
   const { solid, openings } = splitWall(edge.length, edge.openings);
@@ -395,14 +417,20 @@ function WallMesh({
   // იწვევდა იმას, რომ ფერი მხოლოდ ერთ კედელზე ჩანდა. დეკლარაციული JSX
   // material თითო mesh-ს დამოუკიდებლად ანახლებს assignedColor/assignedTex-ზე.
   const renderWallMaterial = () => {
+    // per-wall depth-bias — coplanar კედლების (T-junction/კუთხე) z-fight-ის წინააღმდეგ
+    const po = {
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1 + (wallIndex % 8),
+    };
     if (assignedTex) {
-      return <meshStandardMaterial map={assignedTex} roughness={0.85} />;
+      return <meshStandardMaterial map={assignedTex} roughness={0.85} {...po} />;
     }
     if (assignedColor) {
-      return <meshStandardMaterial color={assignedColor} roughness={0.88} />;
+      return <meshStandardMaterial color={assignedColor} roughness={0.88} {...po} />;
     }
     return (
-      <meshStandardMaterial map={wallTex} color="#F0EDE8" roughness={0.88} />
+      <meshStandardMaterial map={wallTex} color="#F0EDE8" roughness={0.88} {...po} />
     );
   };
 
@@ -1243,6 +1271,7 @@ export default function Scene3D() {
               key={i}
               edge={edge}
               wKey={wk}
+              wallIndex={i}
               wallTex={wallTex}
               glassMat={glassMat}
               frameMat={frameMat}
