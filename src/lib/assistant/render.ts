@@ -46,7 +46,7 @@ export async function renderPhotoreal(
   const genAI = new GoogleGenerativeAI(apiKey)
   const model = genAI.getGenerativeModel({
     model: 'gemini-2.5-flash-image',
-    generationConfig: { responseModalities: ['IMAGE'] } as never,
+    generationConfig: { responseModalities: ['IMAGE'], temperature: 0.75 } as never,
   })
 
   // რეალური ტექსტურები server-side (CORS-ის გარეშე), მაქს. 4
@@ -60,10 +60,23 @@ export async function renderPhotoreal(
     refLines.push(`Image ${refImages.length + 1}: ${r.kind} texture "${r.name}" — apply it faithfully ${surface === 'იატაკზე' ? 'to the floor' : 'to the walls'}.`)
   }
 
-  const prompt = `Turn IMAGE 1 (a 3D interior mockup) into a photorealistic interior photograph.
-Keep the EXACT same room layout, proportions, furniture, and camera angle as IMAGE 1.
-${refImages.length ? `The following images are the REAL product textures used in this room. Reproduce them faithfully on the matching surfaces — DO NOT invent different patterns or colors:\n${refLines.join('\n')}` : 'Keep the exact wall and floor materials, colors and patterns visible in IMAGE 1 — do not replace them.'}
-Only add realism: natural global illumination, soft shadows, true material texture detail, subtle depth of field. Do NOT add or remove walls or furniture.
+  const prompt = `Re-render IMAGE 1 as a PHOTOREALISTIC interior photograph — as if shot with a professional camera inside a real, fully-built room. IMAGE 1 is a flat, evenly-lit 3D mockup; your job is to make it look like a real photo with depth and atmosphere.
+
+KEEP EXACTLY THE SAME — do NOT change:
+- the room shape, proportions and camera angle
+- the position of every piece of furniture and object
+- the wall colors and the wallpaper PATTERN
+- the floor material, and the furniture shapes and colors
+${refImages.length ? `The extra images are the REAL wall/floor product textures used here — reproduce these exact patterns faithfully on the matching surfaces:\n${refLines.join('\n')}` : ''}
+
+ADD STRONG REALISM (this is the important part):
+- physically-based, true-to-life materials — fabric weave on the sofa, real wood grain on the floor, matte vs glossy surfaces
+- realistic LIGHTING: soft natural light with gentle gradients across the walls, warm highlights, a clear light direction
+- SHADOWS & depth: soft contact shadows under and behind every object, ambient occlusion in corners and where surfaces meet, darker recesses — give the room real 3D depth
+- global illumination and subtle light bounce between surfaces, faint realistic reflections
+- photographic depth of field, natural color grading, fine detail and slight real-world imperfections
+
+The result MUST look like a real DSLR photograph of the room — NOT a flat 3D render, NOT a screenshot. Do not add or remove any walls, doors, windows or furniture.
 ${extra}`.trim()
 
   const parts = [

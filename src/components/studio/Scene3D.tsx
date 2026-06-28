@@ -1184,6 +1184,14 @@ export default function Scene3D() {
 
   const camDist = bbox.span * 1.2 + 5;
 
+  // pointer-lock სტატუსი (რომ overlay-მ იცოდეს ჩაკეტილია თუ არა)
+  const [locked, setLocked] = useState(false);
+  useEffect(() => {
+    const onChange = () => setLocked(!!document.pointerLockElement);
+    document.addEventListener("pointerlockchange", onChange);
+    return () => document.removeEventListener("pointerlockchange", onChange);
+  }, []);
+
   return (
     <div className="w-full h-full relative">
       {/* Drag & drop zone — კედელზე ფერის ჩასხმა */}
@@ -1260,7 +1268,7 @@ export default function Scene3D() {
         {firstPerson ? (
           <>
             <FirstPersonMovement bbox={bbox} />
-            <PointerLockControls />
+            <PointerLockControls selector="#fp-enter" />
           </>
         ) : (
           <OrbitControls
@@ -1287,8 +1295,19 @@ export default function Scene3D() {
       {/* walk mode overlay */}
       {firstPerson && (
         <>
+          {/* შესვლის ღილაკი — მხოლოდ ამის კლიკი კეტავს კურსორს (selector).
+              ყოველთვის DOM-შია; ჩაკეტვისას უხილავი ხდება. */}
+          <button
+            id="fp-enter"
+            className={`absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-black/75 px-6 py-4 text-sm font-medium text-white shadow-xl backdrop-blur transition-opacity ${
+              locked ? "pointer-events-none opacity-0" : "opacity-100"
+            }`}
+          >
+            ▶ დააკლიკე გადასაადგილებლად
+          </button>
+
           <div className="pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-xl bg-black/70 px-4 py-2 text-center text-xs text-white backdrop-blur">
-            დააკლიკე სცენას შესასვლელად · <b>WASD / ისრები</b> — სიარული · <b>მაუსი</b> — ყურება · <b>Esc</b> — კურსორი
+            <b>WASD / ისრები</b> — სიარული · <b>მაუსი</b> — ყურება · <b>Esc</b> — კურსორის გათავისუფლება
           </div>
           <button
             onClick={() => setFirstPerson(false)}

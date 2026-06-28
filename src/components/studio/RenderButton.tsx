@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRoomStore } from '@/lib/store/room-store'
 import { Sparkles, Loader2, X, Download } from 'lucide-react'
 
@@ -89,9 +90,9 @@ export default function RenderButton() {
         რენდერი
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
           onClick={() => !loading && setOpen(false)}
         >
           <div
@@ -140,7 +141,8 @@ export default function RenderButton() {
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   )
