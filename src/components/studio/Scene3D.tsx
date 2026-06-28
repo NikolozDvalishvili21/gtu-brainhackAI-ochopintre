@@ -1,7 +1,7 @@
 "use client";
-import { useRef, useMemo, useState, useEffect } from "react";
+import { useRef, useMemo, useState, useEffect, Suspense } from "react";
 import { Canvas, ThreeEvent } from "@react-three/fiber";
-import { OrbitControls, Environment } from "@react-three/drei";
+import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import {
   useRoomStore,
@@ -726,6 +726,72 @@ function PartitionMesh({
 
 // ─── Furniture ────────────────────────────────────────────────────────────────
 
+// ─── Real 3D furniture (Kenney Furniture Kit, CC0) ────────────────────────────
+
+const MODEL_URLS: Record<string, string> = {
+  sofa: "/models/sofa.glb",
+  chair: "/models/chair.glb",
+  table: "/models/table.glb",
+  bed: "/models/bed.glb",
+  plant: "/models/plant.glb",
+  wardrobe: "/models/wardrobe.glb",
+  desk: "/models/desk.glb",
+  lamp: "/models/lamp.glb",
+};
+Object.values(MODEL_URLS).forEach((u) => useGLTF.preload(u));
+
+function FurnitureModel({
+  item,
+  url,
+  onClick,
+}: {
+  item: Furniture;
+  url: string;
+  onClick: (e: ThreeEvent<MouseEvent>) => void;
+}) {
+  const { scene } = useGLTF(url);
+
+  const model = useMemo(() => {
+    const c = scene.clone(true);
+    c.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) {
+        m.castShadow = true;
+        m.receiveShadow = true;
+      }
+    });
+    return c;
+  }, [scene]);
+
+  // footprint-ის მიხედვით ვამასშტაბებთ + ვაყენებთ იატაკზე, ცენტრში
+  const { scale, pos } = useMemo(() => {
+    const box = new THREE.Box3().setFromObject(model);
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    const s = size.x > 0 ? item.width / size.x : 1;
+    return {
+      scale: s,
+      pos: [-center.x * s, -box.min.y * s, -center.z * s] as [
+        number,
+        number,
+        number,
+      ],
+    };
+  }, [model, item.width]);
+
+  return (
+    <group
+      position={[item.x, item.y, item.z]}
+      rotation={[0, item.rotation, 0]}
+      onClick={onClick}
+    >
+      <primitive object={model} scale={scale} position={pos} />
+    </group>
+  );
+}
+
 function FurnitureItem({ item }: { item: Furniture }) {
   const { setSelectedFurniture, selectedFurnitureId } = useRoomStore();
   const isSelected = selectedFurnitureId === item.id;
@@ -884,7 +950,13 @@ function FurnitureItem({ item }: { item: Furniture }) {
 
   return (
     <group>
-      {getFurnitureMesh()}
+      {MODEL_URLS[item.type] ? (
+        <Suspense fallback={null}>
+          <FurnitureModel item={item} url={MODEL_URLS[item.type]} onClick={handleClick} />
+        </Suspense>
+      ) : (
+        getFurnitureMesh()
+      )}
       {isSelected && (
         <mesh position={[item.x, 0.01, item.z]}>
           <ringGeometry

@@ -1,0 +1,12 @@
+3D furniture models — Kenney "Furniture Kit"
+https://kenney.nl/assets/furniture-kit  (also on https://poly.pizza)
+License: CC0 1.0 (Public Domain) — free for commercial use, no attribution required.
+
+sofa.glb      ← loungeSofa.glb
+chair.glb     ← chair.glb
+table.glb     ← table.glb
+bed.glb       ← bedDouble.glb
+plant.glb     ← pottedPlant.glb
+wardrobe.glb  ← bookcaseClosedDoors.glb
+desk.glb      ← desk.glb
+lamp.glb      ← lampSquareFloor.glb
