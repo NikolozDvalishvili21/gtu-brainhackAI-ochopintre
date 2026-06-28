@@ -96,66 +96,13 @@ function useProceduralTexture(type: string, color: string) {
 
 const DEFAULT_REPEAT = 2;
 
-// პროდუქტის ფოტოებს ხშირად აქვს თეთრი padding ყველა მხრიდან → ტექსტურად
-// დადებისას თეთრი ნაკერები ჩანს. აქ ვჭრით სრულად-თეთრ კიდეებს (canvas-ით).
-function trimWhiteBorder(img: HTMLImageElement): HTMLCanvasElement {
-  const w = img.naturalWidth;
-  const h = img.naturalHeight;
-  const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
-  const ctx = c.getContext("2d");
-  if (!ctx || !w || !h) return c;
-  ctx.drawImage(img, 0, 0);
+type Crop = { x: number; y: number; w: number; h: number };
 
-  let data: Uint8ClampedArray;
-  try {
-    data = ctx.getImageData(0, 0, w, h).data;
-  } catch {
-    return c; // tainted — მოჭრის გარეშე
-  }
-
-  const WHITE = 244;
-  const isWhite = (x: number, y: number) => {
-    const i = (y * w + x) * 4;
-    return data[i] >= WHITE && data[i + 1] >= WHITE && data[i + 2] >= WHITE;
-  };
-  const rowWhite = (y: number) => {
-    let n = 0;
-    for (let x = 0; x < w; x++) if (!isWhite(x, y) && ++n > w * 0.01) return false;
-    return true;
-  };
-  const colWhite = (x: number) => {
-    let n = 0;
-    for (let y = 0; y < h; y++) if (!isWhite(x, y) && ++n > h * 0.01) return false;
-    return true;
-  };
-
-  let top = 0,
-    bottom = h - 1,
-    left = 0,
-    right = w - 1;
-  while (top < bottom && rowWhite(top)) top++;
-  while (bottom > top && rowWhite(bottom)) bottom--;
-  while (left < right && colWhite(left)) left++;
-  while (right > left && colWhite(right)) right--;
-
-  const cw = right - left + 1;
-  const ch = bottom - top + 1;
-  // ვჭრით მხოლოდ თუ ნამდვილი თეთრი კიდეა და ნაშთი გონივრულია
-  if ((cw < w * 0.97 || ch < h * 0.97) && cw > w * 0.2 && ch > h * 0.2) {
-    const cc = document.createElement("canvas");
-    cc.width = cw;
-    cc.height = ch;
-    cc.getContext("2d")!.drawImage(img, left, top, cw, ch, 0, 0, cw, ch);
-    return cc;
-  }
-  return c;
-}
-
+// სურათს ხელით-მონიშნულ ნაწილზე ჭრის (crop) და ტექსტურად ამზადებს.
 function useImageTexture(
   url: string | null,
   repeat: number = DEFAULT_REPEAT,
+  crop?: Crop,
 ): THREE.Texture | null {
   const [tex, setTex] = useState<THREE.Texture | null>(null);
 
@@ -169,7 +116,17 @@ function useImageTexture(
     img.crossOrigin = "anonymous";
     img.onload = () => {
       if (cancelled) return;
-      const canvas = trimWhiteBorder(img);
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      const cr = crop ?? { x: 0, y: 0, w: 1, h: 1 };
+      const sx = Math.max(0, Math.round(cr.x * w));
+      const sy = Math.max(0, Math.round(cr.y * h));
+      const sw = Math.max(1, Math.min(w - sx, Math.round(cr.w * w)));
+      const sh = Math.max(1, Math.min(h - sy, Math.round(cr.h * h)));
+      const canvas = document.createElement("canvas");
+      canvas.width = sw;
+      canvas.height = sh;
+      canvas.getContext("2d")!.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
       const t = new THREE.CanvasTexture(canvas);
       t.colorSpace = THREE.SRGBColorSpace;
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -183,7 +140,7 @@ function useImageTexture(
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url]);
+  }, [url, crop?.x, crop?.y, crop?.w, crop?.h]);
 
   // repeat-ის ცვლილება reload-ის გარეშე
   useEffect(() => {
@@ -407,6 +364,7 @@ interface WallMeshProps {
   assignedColor: string | null;
   assignedImageUrl: string | null;
   assignedRepeat: number;
+  assignedCrop?: Crop;
   onSelect: (key: string) => void;
 }
 
@@ -421,10 +379,11 @@ function WallMesh({
   assignedColor,
   assignedImageUrl,
   assignedRepeat,
+  assignedCrop,
   onSelect,
 }: WallMeshProps) {
   const { solid, openings } = splitWall(edge.length, edge.openings);
-  const assignedTex = useImageTexture(assignedImageUrl, assignedRepeat);
+  const assignedTex = useImageTexture(assignedImageUrl, assignedRepeat, assignedCrop);
 
   // თითო segment-ს საკუთარი material — გაზიარებული instance + `<primitive>`
   // იწვევდა იმას, რომ ფერი მხოლოდ ერთ კედელზე ჩანდა. დეკლარაციული JSX
@@ -692,6 +651,7 @@ function RoomSurfaces({ room }: { room: RoomShape }) {
   const floorImgTex = useImageTexture(
     assignedFloor?.image ?? null,
     assignedFloor?.texRepeat ?? DEFAULT_REPEAT,
+    assignedFloor?.crop,
   );
 
   const ceilMat = useMemo(
@@ -1090,6 +1050,7 @@ export default function Scene3D() {
               assignedColor={wallMaterials?.[wk]?.color?.color ?? null}
               assignedImageUrl={wallMaterials?.[wk]?.material?.image ?? null}
               assignedRepeat={wallMaterials?.[wk]?.texRepeat ?? DEFAULT_REPEAT}
+              assignedCrop={wallMaterials?.[wk]?.crop}
               onSelect={(key) => setSelectedWall(key)}
             />
           );

@@ -1,6 +1,8 @@
 'use client'
 import { useState, useEffect } from 'react'
-import { useRoomStore, WallColor, MaterialRef } from '../../lib/store/room-store'
+import { useRoomStore, WallColor, MaterialRef, type Crop } from '../../lib/store/room-store'
+import CropEditor from './CropEditor'
+import { Crop as CropIcon } from 'lucide-react'
 import { FURNITURE_CATALOG_LIST } from '@/lib/constants/furniture-catalog'
 import { placeSingleItem } from '@/lib/studio/furniture-layout'
 import { Layers, Palette, Sofa, X, Loader2 } from 'lucide-react'
@@ -25,8 +27,13 @@ export default function Sidebar() {
     setWallMaterial, clearWallMaterial,
     selectedFloorRoomId, floorMaterials, setFloorMaterial, clearFloorMaterial,
     setWallTexRepeat, setFloorTexRepeat,
+    setWallCrop, setFloorCrop,
     rooms,
   } = useRoomStore()
+
+  const [cropTarget, setCropTarget] = useState<
+    { image: string; crop?: Crop; apply: (c: Crop) => void } | null
+  >(null)
 
   const [tab, setTab] = useState<Tab>('walls')
   const [wallColors, setWallColors] = useState<WallColor[]>([])
@@ -85,6 +92,7 @@ export default function Sidebar() {
   if (viewMode === '2d') return null
 
   return (
+    <>
     <div className="w-72 h-full bg-white border-l border-gray-200 flex flex-col overflow-hidden">
 
       {/* Tabs */}
@@ -117,6 +125,16 @@ export default function Sidebar() {
                     value={currentAssignment?.texRepeat ?? 2}
                     onChange={(n) => setWallTexRepeat(selectedWallKey, n)}
                   />
+                  <button
+                    onClick={() => setCropTarget({
+                      image: currentMaterial!.image,
+                      crop: currentAssignment?.crop,
+                      apply: (c) => setWallCrop(selectedWallKey, c),
+                    })}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                  >
+                    <CropIcon size={13} /> პატერნის მოჭრა
+                  </button>
                 </div>
               ) : (
               <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
@@ -265,6 +283,16 @@ export default function Sidebar() {
                     value={currentFloor.texRepeat ?? 2}
                     onChange={(n) => setFloorTexRepeat(selectedFloorRoomId, n)}
                   />
+                  <button
+                    onClick={() => setCropTarget({
+                      image: currentFloor!.image,
+                      crop: currentFloor!.crop,
+                      apply: (c) => setFloorCrop(selectedFloorRoomId, c),
+                    })}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 py-2 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                  >
+                    <CropIcon size={13} /> პატერნის მოჭრა
+                  </button>
                 </div>
               ) : (
                 <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
@@ -363,6 +391,16 @@ export default function Sidebar() {
         )}
       </div>
     </div>
+
+    {cropTarget && (
+      <CropEditor
+        image={cropTarget.image}
+        initial={cropTarget.crop}
+        onApply={cropTarget.apply}
+        onClose={() => setCropTarget(null)}
+      />
+    )}
+    </>
   )
 }
 

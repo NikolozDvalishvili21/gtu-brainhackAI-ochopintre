@@ -78,6 +78,13 @@ export interface WallColor {
   color: string;
 }
 
+export interface Crop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface MaterialRef {
   id: string;
   name: string;
@@ -90,6 +97,7 @@ export interface MaterialRef {
   url?: string | null;
   dimensions?: string | null;
   texRepeat?: number; // ტექსტურის გამეორება (პატერნის ზომა)
+  crop?: Crop; // ხელით მოჭრილი არე (ნორმალიზებული 0–1)
 }
 
 export interface WallMaterialAssignment {
@@ -99,6 +107,7 @@ export interface WallMaterialAssignment {
   material?: MaterialRef;
   wallArea?: number;
   texRepeat?: number; // ტექსტურის გამეორება (პატერნის ზომა)
+  crop?: Crop; // ხელით მოჭრილი არე (ნორმალიზებული 0–1)
 }
 
 // ─── Store interface ──────────────────────────────────────────────────────────
@@ -165,6 +174,10 @@ interface EditorStore {
   // ── ტექსტურის პატერნის ზომა (repeat) ───────────────────────────────────────
   setWallTexRepeat: (wallKey: string, n: number) => void;
   setFloorTexRepeat: (roomId: string, n: number) => void;
+
+  // ── ტექსტურის მოჭრა (crop) ─────────────────────────────────────────────────
+  setWallCrop: (wallKey: string, crop: Crop) => void;
+  setFloorCrop: (roomId: string, crop: Crop) => void;
 
   // ── 2D plan scan ─────────────────────────────────────────────────────────
   applyScannedRooms: (rooms: RoomShape[]) => void;
@@ -365,6 +378,30 @@ export const useRoomStore = create<EditorStore>((set) => ({
             floorMaterials: {
               ...s.floorMaterials,
               [roomId]: { ...s.floorMaterials[roomId], texRepeat: n },
+            },
+          }
+        : {},
+    ),
+
+  setWallCrop: (wallKey, crop) =>
+    set((s) =>
+      s.wallMaterials[wallKey]
+        ? {
+            wallMaterials: {
+              ...s.wallMaterials,
+              [wallKey]: { ...s.wallMaterials[wallKey], crop },
+            },
+          }
+        : {},
+    ),
+
+  setFloorCrop: (roomId, crop) =>
+    set((s) =>
+      s.floorMaterials[roomId]
+        ? {
+            floorMaterials: {
+              ...s.floorMaterials,
+              [roomId]: { ...s.floorMaterials[roomId], crop },
             },
           }
         : {},
