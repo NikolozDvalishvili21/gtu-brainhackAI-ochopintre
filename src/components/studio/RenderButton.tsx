@@ -23,6 +23,22 @@ function buildPrompt(): string {
   return bits.length ? `გამოყენებული მასალები — ${bits.join('; ')}.` : ''
 }
 
+type Ref = { kind: 'wallpaper' | 'floor'; name: string; url: string }
+
+function buildRefs(): Ref[] {
+  const s = useRoomStore.getState()
+  const byUrl = new Map<string, Ref>()
+  for (const a of Object.values(s.wallMaterials)) {
+    if (a.material?.image) {
+      byUrl.set(a.material.image, { kind: 'wallpaper', name: a.material.name, url: a.material.image })
+    }
+  }
+  for (const m of Object.values(s.floorMaterials)) {
+    if (m.image) byUrl.set(m.image, { kind: 'floor', name: m.name, url: m.image })
+  }
+  return Array.from(byUrl.values())
+}
+
 function captureCanvas(): { base64: string; mimeType: string } {
   const canvas = document.querySelector('canvas') as HTMLCanvasElement | null
   if (!canvas) throw new Error('3D სცენა ვერ მოიძებნა')
@@ -49,7 +65,7 @@ export default function RenderButton() {
       const res = await fetch('/api/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: base64, mimeType, prompt: buildPrompt() }),
+        body: JSON.stringify({ imageBase64: base64, mimeType, prompt: buildPrompt(), refs: buildRefs() }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error ?? 'რენდერი ვერ მოხერხდა')
