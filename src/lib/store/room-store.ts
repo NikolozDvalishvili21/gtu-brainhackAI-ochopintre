@@ -89,6 +89,7 @@ export interface MaterialRef {
   source?: string; // 'nova' | 'domino'
   url?: string | null;
   dimensions?: string | null;
+  texRepeat?: number; // ტექსტურის გამეორება (პატერნის ზომა)
 }
 
 export interface WallMaterialAssignment {
@@ -97,6 +98,7 @@ export interface WallMaterialAssignment {
   // material with image — e.g. wallpaper (from /materials API)
   material?: MaterialRef;
   wallArea?: number;
+  texRepeat?: number; // ტექსტურის გამეორება (პატერნის ზომა)
 }
 
 // ─── Store interface ──────────────────────────────────────────────────────────
@@ -159,6 +161,10 @@ interface EditorStore {
   setSelectedFloor: (roomId: string | null) => void;
   setFloorMaterial: (roomId: string, material: MaterialRef) => void;
   clearFloorMaterial: (roomId: string) => void;
+
+  // ── ტექსტურის პატერნის ზომა (repeat) ───────────────────────────────────────
+  setWallTexRepeat: (wallKey: string, n: number) => void;
+  setFloorTexRepeat: (roomId: string, n: number) => void;
 
   // ── 2D plan scan ─────────────────────────────────────────────────────────
   applyScannedRooms: (rooms: RoomShape[]) => void;
@@ -339,6 +345,30 @@ export const useRoomStore = create<EditorStore>((set) => ({
       delete next[roomId];
       return { floorMaterials: next };
     }),
+
+  setWallTexRepeat: (wallKey, n) =>
+    set((s) =>
+      s.wallMaterials[wallKey]
+        ? {
+            wallMaterials: {
+              ...s.wallMaterials,
+              [wallKey]: { ...s.wallMaterials[wallKey], texRepeat: n },
+            },
+          }
+        : {},
+    ),
+
+  setFloorTexRepeat: (roomId, n) =>
+    set((s) =>
+      s.floorMaterials[roomId]
+        ? {
+            floorMaterials: {
+              ...s.floorMaterials,
+              [roomId]: { ...s.floorMaterials[roomId], texRepeat: n },
+            },
+          }
+        : {},
+    ),
 
   applyScannedRooms: (rooms) =>
     set({

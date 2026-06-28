@@ -79,6 +79,28 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   )
 }
 
+export function TexRepeatSlider({
+  value, onChange,
+}: { value: number; onChange: (n: number) => void }) {
+  return (
+    <div className="rounded-xl border border-gray-200 p-3">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="text-[11px] font-semibold text-gray-500">პატერნის ზომა</span>
+        <span className="text-[11px] text-gray-400">{value.toFixed(1)}×</span>
+      </div>
+      <input
+        type="range" min={0.5} max={8} step={0.5} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="w-full accent-brand cursor-pointer"
+      />
+      <div className="mt-0.5 flex justify-between text-[9px] text-gray-400">
+        <span>დიდი პატერნი</span>
+        <span>პატარა / მეტი</span>
+      </div>
+    </div>
+  )
+}
+
 export function MaterialDetail({ m, onClear }: { m: MaterialRef; onClear?: () => void }) {
   const price = priceLabel(m)
   const store = storeInfo(m.source)

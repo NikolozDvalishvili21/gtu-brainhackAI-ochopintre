@@ -4,7 +4,7 @@ import { useRoomStore, WallColor, MaterialRef } from '../../lib/store/room-store
 import { FURNITURE_CATALOG_LIST } from '@/lib/constants/furniture-catalog'
 import { placeSingleItem } from '@/lib/studio/furniture-layout'
 import { Layers, Palette, Sofa, X, Loader2 } from 'lucide-react'
-import { MaterialTile, MaterialDetail } from './MaterialCard'
+import { MaterialTile, MaterialDetail, TexRepeatSlider } from './MaterialCard'
 
 const BASE = 'https://interior-materials-api.onrender.com'
 
@@ -24,6 +24,7 @@ export default function Sidebar() {
     selectedWallKey, wallMaterials,
     setWallMaterial, clearWallMaterial,
     selectedFloorRoomId, floorMaterials, setFloorMaterial, clearFloorMaterial,
+    setWallTexRepeat, setFloorTexRepeat,
     rooms,
   } = useRoomStore()
 
@@ -110,7 +111,13 @@ export default function Sidebar() {
             {/* Selected wall status */}
             {selectedWallKey ? (
               currentMaterial ? (
-                <MaterialDetail m={currentMaterial} onClear={() => clearWallMaterial(selectedWallKey)} />
+                <div className="space-y-3">
+                  <MaterialDetail m={currentMaterial} onClear={() => clearWallMaterial(selectedWallKey)} />
+                  <TexRepeatSlider
+                    value={currentAssignment?.texRepeat ?? 2}
+                    onChange={(n) => setWallTexRepeat(selectedWallKey, n)}
+                  />
+                </div>
               ) : (
               <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-2">
@@ -252,7 +259,13 @@ export default function Sidebar() {
             {/* Selected floor status */}
             {selectedFloorRoomId ? (
               currentFloor ? (
-                <MaterialDetail m={currentFloor} onClear={() => clearFloorMaterial(selectedFloorRoomId)} />
+                <div className="space-y-3">
+                  <MaterialDetail m={currentFloor} onClear={() => clearFloorMaterial(selectedFloorRoomId)} />
+                  <TexRepeatSlider
+                    value={currentFloor.texRepeat ?? 2}
+                    onChange={(n) => setFloorTexRepeat(selectedFloorRoomId, n)}
+                  />
+                </div>
               ) : (
                 <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
                   <p className="text-xs font-semibold text-brand mb-1">იატაკი მონიშნულია</p>

@@ -94,7 +94,69 @@ function useProceduralTexture(type: string, color: string) {
 
 // ─── Image URL → THREE.Texture ────────────────────────────────────────────────
 
-function useImageTexture(url: string | null): THREE.Texture | null {
+const DEFAULT_REPEAT = 2;
+
+// პროდუქტის ფოტოებს ხშირად აქვს თეთრი padding ყველა მხრიდან → ტექსტურად
+// დადებისას თეთრი ნაკერები ჩანს. აქ ვჭრით სრულად-თეთრ კიდეებს (canvas-ით).
+function trimWhiteBorder(img: HTMLImageElement): HTMLCanvasElement {
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  if (!ctx || !w || !h) return c;
+  ctx.drawImage(img, 0, 0);
+
+  let data: Uint8ClampedArray;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch {
+    return c; // tainted — მოჭრის გარეშე
+  }
+
+  const WHITE = 244;
+  const isWhite = (x: number, y: number) => {
+    const i = (y * w + x) * 4;
+    return data[i] >= WHITE && data[i + 1] >= WHITE && data[i + 2] >= WHITE;
+  };
+  const rowWhite = (y: number) => {
+    let n = 0;
+    for (let x = 0; x < w; x++) if (!isWhite(x, y) && ++n > w * 0.01) return false;
+    return true;
+  };
+  const colWhite = (x: number) => {
+    let n = 0;
+    for (let y = 0; y < h; y++) if (!isWhite(x, y) && ++n > h * 0.01) return false;
+    return true;
+  };
+
+  let top = 0,
+    bottom = h - 1,
+    left = 0,
+    right = w - 1;
+  while (top < bottom && rowWhite(top)) top++;
+  while (bottom > top && rowWhite(bottom)) bottom--;
+  while (left < right && colWhite(left)) left++;
+  while (right > left && colWhite(right)) right--;
+
+  const cw = right - left + 1;
+  const ch = bottom - top + 1;
+  // ვჭრით მხოლოდ თუ ნამდვილი თეთრი კიდეა და ნაშთი გონივრულია
+  if ((cw < w * 0.97 || ch < h * 0.97) && cw > w * 0.2 && ch > h * 0.2) {
+    const cc = document.createElement("canvas");
+    cc.width = cw;
+    cc.height = ch;
+    cc.getContext("2d")!.drawImage(img, left, top, cw, ch, 0, 0, cw, ch);
+    return cc;
+  }
+  return c;
+}
+
+function useImageTexture(
+  url: string | null,
+  repeat: number = DEFAULT_REPEAT,
+): THREE.Texture | null {
   const [tex, setTex] = useState<THREE.Texture | null>(null);
 
   useEffect(() => {
@@ -102,24 +164,34 @@ function useImageTexture(url: string | null): THREE.Texture | null {
       setTex(null);
       return;
     }
-    const loader = new THREE.TextureLoader();
-    loader.setCrossOrigin("anonymous");
     let cancelled = false;
-    loader.load(
-      proxiedImg(url),
-      (t) => {
-        if (cancelled) return;
-        t.wrapS = t.wrapT = THREE.RepeatWrapping;
-        t.repeat.set(2, 2);
-        setTex(t);
-      },
-      undefined,
-      () => {},
-    );
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      const canvas = trimWhiteBorder(img);
+      const t = new THREE.CanvasTexture(canvas);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(repeat, repeat);
+      t.needsUpdate = true;
+      setTex(t);
+    };
+    img.onerror = () => {};
+    img.src = proxiedImg(url);
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
+
+  // repeat-ის ცვლილება reload-ის გარეშე
+  useEffect(() => {
+    if (tex) {
+      tex.repeat.set(repeat, repeat);
+      tex.needsUpdate = true;
+    }
+  }, [tex, repeat]);
 
   return tex;
 }
@@ -334,6 +406,7 @@ interface WallMeshProps {
   isSelected: boolean;
   assignedColor: string | null;
   assignedImageUrl: string | null;
+  assignedRepeat: number;
   onSelect: (key: string) => void;
 }
 
@@ -347,10 +420,11 @@ function WallMesh({
   isSelected,
   assignedColor,
   assignedImageUrl,
+  assignedRepeat,
   onSelect,
 }: WallMeshProps) {
   const { solid, openings } = splitWall(edge.length, edge.openings);
-  const assignedTex = useImageTexture(assignedImageUrl);
+  const assignedTex = useImageTexture(assignedImageUrl, assignedRepeat);
 
   // თითო segment-ს საკუთარი material — გაზიარებული instance + `<primitive>`
   // იწვევდა იმას, რომ ფერი მხოლოდ ერთ კედელზე ჩანდა. დეკლარაციული JSX
@@ -615,7 +689,10 @@ function RoomSurfaces({ room }: { room: RoomShape }) {
 
   // API-დან მინიჭებული იატაკის სურათი (proxy-ით useImageTexture-ში)
   const assignedFloor = floorMaterials?.[room.id] ?? null;
-  const floorImgTex = useImageTexture(assignedFloor?.image ?? null);
+  const floorImgTex = useImageTexture(
+    assignedFloor?.image ?? null,
+    assignedFloor?.texRepeat ?? DEFAULT_REPEAT,
+  );
 
   const ceilMat = useMemo(
     () => new THREE.MeshStandardMaterial({ color: ceilColor, roughness: 0.95 }),
@@ -1012,6 +1089,7 @@ export default function Scene3D() {
               isSelected={selectedWallKey === wk}
               assignedColor={wallMaterials?.[wk]?.color?.color ?? null}
               assignedImageUrl={wallMaterials?.[wk]?.material?.image ?? null}
+              assignedRepeat={wallMaterials?.[wk]?.texRepeat ?? DEFAULT_REPEAT}
               onSelect={(key) => setSelectedWall(key)}
             />
           );
