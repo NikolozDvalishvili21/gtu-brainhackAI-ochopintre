@@ -969,6 +969,7 @@ export default function Scene3D() {
           fov: 48,
         }}
         shadows
+        gl={{ preserveDrawingBuffer: true }}
         onPointerMissed={() => {
           setSelectedFurniture(null);
           // setSelectedWall(null);

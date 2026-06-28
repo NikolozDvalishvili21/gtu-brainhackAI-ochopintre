@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useRoomStore, type RoomShape } from "@/lib/store/room-store";
 import Logo from "@/components/shared/Logo";
+import RenderButton from "@/components/studio/RenderButton";
 import { Box, PenLine, Download, Upload, Layers, Loader2 } from "lucide-react";
 
 const ROOM_COLORS = [
@@ -116,6 +117,7 @@ export default function Navbar() {
         )}
         {scanning ? "სკანირება..." : "2D ატვირთვა"}
       </button>
+      <RenderButton />
       <button className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-brand-dark">
         <Download size={13} />
         Export
