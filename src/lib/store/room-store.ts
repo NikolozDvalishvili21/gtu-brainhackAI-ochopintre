@@ -61,7 +61,10 @@ export interface Furniture {
   depth: number;
   height: number;
   color: string;
+  scale?: number; // ერთიანი მასშტაბი (gizmo-თი)
 }
+
+export type TransformMode = "translate" | "rotate" | "scale";
 
 export interface MaterialChoice {
   wallTexture: string;
@@ -129,6 +132,7 @@ interface EditorStore {
   // ── Wall selection & per-wall materials ──────────────────────────────────
   selectedWallKey: string | null;
   selectedFurnitureId: string | null;
+  transformMode: TransformMode;
   wallMaterials: Record<string, WallMaterialAssignment>;
 
   // ── Floor selection & per-room floor material ────────────────────────────
@@ -159,6 +163,7 @@ interface EditorStore {
   // ── Wall material actions ─────────────────────────────────────────────────
   setSelectedWall: (key: string | null) => void;
   setSelectedFurniture: (id: string | null) => void;
+  setTransformMode: (m: TransformMode) => void;
   setWallMaterial: (wallKey: string, assignment: WallMaterialAssignment) => void;
   clearWallMaterial: (wallKey: string) => void;
 
@@ -225,6 +230,7 @@ export const useRoomStore = create<EditorStore>((set) => ({
 
   selectedWallKey: null,
   selectedFurnitureId: null,
+  transformMode: "translate",
   wallMaterials: {},
 
   selectedFloorRoomId: null,
@@ -307,6 +313,8 @@ export const useRoomStore = create<EditorStore>((set) => ({
       selectedWallKey: null,
       selectedFloorRoomId: null,
     }),
+
+  setTransformMode: (m) => set({ transformMode: m }),
 
   setWallMaterial: (wallKey, assignment) =>
     set((s) => ({

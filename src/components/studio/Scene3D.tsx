@@ -1,7 +1,7 @@
 "use client";
 import { useRef, useMemo, useState, useEffect, Suspense } from "react";
 import { Canvas, ThreeEvent } from "@react-three/fiber";
-import { OrbitControls, Environment, useGLTF } from "@react-three/drei";
+import { OrbitControls, Environment, useGLTF, TransformControls } from "@react-three/drei";
 import * as THREE from "three";
 import {
   useRoomStore,
@@ -740,15 +740,7 @@ const MODEL_URLS: Record<string, string> = {
 };
 Object.values(MODEL_URLS).forEach((u) => useGLTF.preload(u));
 
-function FurnitureModel({
-  item,
-  url,
-  onClick,
-}: {
-  item: Furniture;
-  url: string;
-  onClick: (e: ThreeEvent<MouseEvent>) => void;
-}) {
+function FurnitureModel({ item, url }: { item: Furniture; url: string }) {
   const { scene } = useGLTF(url);
 
   const model = useMemo(() => {
@@ -781,26 +773,39 @@ function FurnitureModel({
     };
   }, [model, item.width]);
 
-  return (
-    <group
-      position={[item.x, item.y, item.z]}
-      rotation={[0, item.rotation, 0]}
-      onClick={onClick}
-    >
-      <primitive object={model} scale={scale} position={pos} />
-    </group>
-  );
+  return <primitive object={model} scale={scale} position={pos} />;
 }
 
 function FurnitureItem({ item }: { item: Furniture }) {
-  const { setSelectedFurniture, selectedFurnitureId } = useRoomStore();
+  const { setSelectedFurniture, selectedFurnitureId, transformMode, updateFurniture } =
+    useRoomStore();
   const isSelected = selectedFurnitureId === item.id;
   const meshRef = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     setSelectedFurniture(item.id);
   };
+
+  const commit = () => {
+    const g = groupRef.current;
+    if (!g) return;
+    updateFurniture(item.id, {
+      x: g.position.x,
+      z: g.position.z,
+      rotation: g.rotation.y,
+      scale: Math.max(0.2, g.scale.x),
+    });
+  };
+
+  const hasModel = !!MODEL_URLS[item.type];
+  const show =
+    transformMode === "translate"
+      ? { showX: true, showY: false, showZ: true }
+      : transformMode === "rotate"
+        ? { showX: false, showY: true, showZ: false }
+        : { showX: true, showY: true, showZ: true };
 
   const getFurnitureMesh = () => {
     switch (item.type) {
@@ -948,28 +953,53 @@ function FurnitureItem({ item }: { item: Furniture }) {
     }
   };
 
-  return (
-    <group>
-      {MODEL_URLS[item.type] ? (
-        <Suspense fallback={null}>
-          <FurnitureModel item={item} url={MODEL_URLS[item.type]} onClick={handleClick} />
-        </Suspense>
-      ) : (
-        getFurnitureMesh()
-      )}
-      {isSelected && (
-        <mesh position={[item.x, 0.01, item.z]}>
-          <ringGeometry
-            args={[
-              Math.max(item.width, item.depth) * 0.6,
-              Math.max(item.width, item.depth) * 0.65,
-              32,
-            ]}
-          />
-          <meshStandardMaterial color="#2D6A4F" transparent opacity={0.6} />
-        </mesh>
-      )}
+  // არა-მოდელ ტიპები — ძველი (პოზიციონირებული) fallback
+  if (!hasModel) {
+    return (
+      <group>
+        {getFurnitureMesh()}
+        {isSelected && (
+          <mesh position={[item.x, 0.01, item.z]}>
+            <ringGeometry
+              args={[
+                Math.max(item.width, item.depth) * 0.6,
+                Math.max(item.width, item.depth) * 0.65,
+                32,
+              ]}
+            />
+            <meshStandardMaterial color="#2D6A4F" transparent opacity={0.6} />
+          </mesh>
+        )}
+      </group>
+    );
+  }
+
+  const content = (
+    <group
+      ref={groupRef}
+      position={[item.x, item.y, item.z]}
+      rotation={[0, item.rotation, 0]}
+      scale={item.scale ?? 1}
+      onClick={handleClick}
+    >
+      <Suspense fallback={null}>
+        <FurnitureModel item={item} url={MODEL_URLS[item.type]} />
+      </Suspense>
     </group>
+  );
+
+  return (
+    <>
+      {content}
+      {isSelected && groupRef.current && (
+        <TransformControls
+          object={groupRef.current}
+          mode={transformMode}
+          {...show}
+          onObjectChange={commit}
+        />
+      )}
+    </>
   );
 }
 
@@ -999,6 +1029,10 @@ export default function Scene3D() {
     furniture,
     materials,
     setSelectedFurniture,
+    selectedFurnitureId,
+    transformMode,
+    setTransformMode,
+    removeFurniture,
     selectedWallKey,
     wallMaterials,
     setSelectedWall,
@@ -1137,6 +1171,7 @@ export default function Scene3D() {
         ))}
 
         <OrbitControls
+          makeDefault
           target={[bbox.cx, 1.2, bbox.cz]}
           maxPolarAngle={Math.PI / 2.05}
           minDistance={2}
@@ -1144,6 +1179,37 @@ export default function Scene3D() {
         />
         <Environment preset="apartment" />
       </Canvas>
+
+      {/* ავეჯის მართვის toolbar (ჩანს როცა ავეჯი მონიშნულია) */}
+      {selectedFurnitureId && (
+        <div className="absolute left-1/2 bottom-5 z-10 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
+          {([
+            { m: "translate" as const, label: "გადატანა", icon: "✥" },
+            { m: "rotate" as const, label: "ბრუნვა", icon: "⟳" },
+            { m: "scale" as const, label: "ზომა", icon: "⤡" },
+          ]).map((b) => (
+            <button
+              key={b.m}
+              onClick={() => setTransformMode(b.m)}
+              className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
+                transformMode === b.m
+                  ? "bg-brand text-white"
+                  : "text-gray-600 hover:bg-gray-100"
+              }`}
+            >
+              <span className="text-sm leading-none">{b.icon}</span>
+              {b.label}
+            </button>
+          ))}
+          <div className="mx-1 h-6 w-px bg-gray-200" />
+          <button
+            onClick={() => removeFurniture(selectedFurnitureId)}
+            className="rounded-xl px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-50"
+          >
+            წაშლა
+          </button>
+        </div>
+      )}
     </div>
   );
 }
