@@ -7,9 +7,7 @@ import { Pencil, MousePointer2, DoorOpen, RectangleHorizontal, Eraser, Trash2 } 
 
 const SCALE = 70
 const GRID = 0.5
-const CW = 1100
-const CH = 720
-const NODE_SNAP = 0.3 // მ
+const SNAP_PX = 12 // node-ზე მიკვრის რადიუსი ეკრანის პიქსელებში (zoom-ისგან დამოუკიდებელი)
 const snapG = (v: number) => Math.round(v / GRID) * GRID
 
 type Tool = 'wall' | 'select' | 'door' | 'window' | 'erase'
@@ -25,8 +23,10 @@ function woodPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
 
 export default function PlanEditor2D() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
   const woodRef = useRef<CanvasPattern | null>(null)
   const { nodes, walls, openings, addWall, moveNode, removeWall, addOpening } = usePlanStore()
+  const [size, setSize] = useState({ w: 1000, h: 700 })
 
   const [tool, setTool] = useState<Tool>('wall')
   const [pan, setPan] = useState({ x: 120, y: 120 })
@@ -44,10 +44,12 @@ export default function PlanEditor2D() {
     const r = canvasRef.current!.getBoundingClientRect()
     return { cx: e.clientX - r.left, cy: e.clientY - r.top }
   }
-  // snap a point (meters) to nearest node, else grid
+  // snap a point (meters) to nearest node — ეკრანის პიქსელებში (zoom-ისგან
+  // დამოუკიდებელი, ნაკლებად „წებოვანი"), თორემ grid-ზე
   function snapPt(m: { x: number; y: number }): { x: number; y: number } {
-    let best: PlanNode | null = null, bd = NODE_SNAP
-    for (const n of nodes) { const d = Math.hypot(n.x - m.x, n.y - m.y); if (d < bd) { bd = d; best = n } }
+    const mx = wx(m.x), my = wy(m.y)
+    let best: PlanNode | null = null, bd = SNAP_PX
+    for (const n of nodes) { const d = Math.hypot(wx(n.x) - mx, wy(n.y) - my); if (d < bd) { bd = d; best = n } }
     return best ? { x: best.x, y: best.y } : { x: snapG(m.x), y: snapG(m.y) }
   }
   function hitNode(cx: number, cy: number): PlanNode | null {
@@ -77,7 +79,13 @@ export default function PlanEditor2D() {
     const m = snapPt(toM(cx, cy))
     if (tool === 'wall') {
       if (!draft) setDraft(m)
-      else { addWall(draft.x, draft.y, m.x, m.y); setDraft(m) }
+      else {
+        addWall(draft.x, draft.y, m.x, m.y)
+        // არსებულ node-ზე დასრულება ამთავრებს ჯაჭვს (loop-ის ჩაკეტვა / დაკავშირება),
+        // მერე თავისუფლად იწყებ ახალ კედელს სხვაგან
+        const onNode = nodes.some((n) => Math.hypot(n.x - m.x, n.y - m.y) < 0.01)
+        setDraft(onNode ? null : m)
+      }
     } else if (tool === 'door' || tool === 'window') {
       const wid = hitWall(cx, cy)
       if (wid) {
@@ -105,10 +113,21 @@ export default function PlanEditor2D() {
     window.addEventListener('keydown', esc); return () => window.removeEventListener('keydown', esc)
   }, [])
 
+  // canvas fullscreen — კონტეინერის ზომაზე მორგება
+  useEffect(() => {
+    const el = wrapRef.current; if (!el) return
+    const apply = () => setSize({ w: el.clientWidth, h: el.clientHeight })
+    apply()
+    const ro = new ResizeObserver(apply)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   // ── draw ──
   const draw = useCallback(() => {
     const cv = canvasRef.current; if (!cv) return
     const ctx = cv.getContext('2d')!
+    const { w: CW, h: CH } = size
     if (!woodRef.current) woodRef.current = woodPattern(ctx)
     ctx.clearRect(0, 0, CW, CH); ctx.fillStyle = '#F6F5F2'; ctx.fillRect(0, 0, CW, CH)
 
@@ -164,7 +183,7 @@ export default function PlanEditor2D() {
       ctx.beginPath(); ctx.moveTo(wx(draft.x), wy(draft.y)); ctx.lineTo(wx(s.x), wy(s.y)); ctx.stroke(); ctx.setLineDash([])
       ctx.fillStyle = '#2D6A4F'; ctx.beginPath(); ctx.arc(wx(draft.x), wy(draft.y), 4, 0, Math.PI * 2); ctx.fill()
     }
-  }, [nodes, walls, openings, pan, zoom, draft, mouse, tool])
+  }, [nodes, walls, openings, pan, zoom, draft, mouse, tool, size])
 
   useEffect(() => { draw() }, [draw])
 
@@ -190,11 +209,11 @@ export default function PlanEditor2D() {
           <Trash2 size={15} /> გასუფთავება
         </button>
       </div>
-      <div className="flex-1 overflow-hidden">
-        <canvas ref={canvasRef} width={CW} height={CH}
+      <div ref={wrapRef} className="flex-1 overflow-hidden">
+        <canvas ref={canvasRef} width={size.w} height={size.h}
           onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
           onWheel={onWheel} onContextMenu={e => e.preventDefault()}
-          className="cursor-crosshair" style={{ width: CW, height: CH }} />
+          className="block cursor-crosshair" />
       </div>
       <div className="border-t border-gray-100 bg-white px-4 py-1.5 text-xs text-gray-400">
         კედლის ხატვა: კლიკი → კლიკი (ჯაჭვი) · Esc — შეწყვეტა · შუა/მარჯვ. ღილაკი — pan · scroll — zoom
