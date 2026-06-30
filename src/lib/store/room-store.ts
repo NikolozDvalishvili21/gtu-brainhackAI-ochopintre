@@ -100,6 +100,7 @@ export interface MaterialRef {
   url?: string | null;
   dimensions?: string | null;
   texRepeat?: number; // ტექსტურის გამეორება (პატერნის ზომა)
+  texRotation?: number; // ტექსტურის მოტრიალება (რადიანებში)
   crop?: Crop; // ხელით მოჭრილი არე (ნორმალიზებული 0–1)
 }
 
@@ -110,6 +111,7 @@ export interface WallMaterialAssignment {
   material?: MaterialRef;
   wallArea?: number;
   texRepeat?: number; // ტექსტურის გამეორება (პატერნის ზომა)
+  texRotation?: number; // ტექსტურის მოტრიალება (რადიანებში)
   crop?: Crop; // ხელით მოჭრილი არე (ნორმალიზებული 0–1)
 }
 
@@ -185,6 +187,8 @@ interface EditorStore {
   // ── ტექსტურის პატერნის ზომა (repeat) ───────────────────────────────────────
   setWallTexRepeat: (wallKey: string, n: number) => void;
   setFloorTexRepeat: (roomId: string, n: number) => void;
+  setWallTexRotation: (wallKey: string, rad: number) => void;
+  setFloorTexRotation: (roomId: string, rad: number) => void;
 
   // ── ტექსტურის მოჭრა (crop) ─────────────────────────────────────────────────
   setWallCrop: (wallKey: string, crop: Crop) => void;
@@ -411,6 +415,30 @@ export const useRoomStore = create<EditorStore>((set) => ({
             floorMaterials: {
               ...s.floorMaterials,
               [roomId]: { ...s.floorMaterials[roomId], texRepeat: n },
+            },
+          }
+        : {},
+    ),
+
+  setWallTexRotation: (wallKey, rad) =>
+    set((s) =>
+      s.wallMaterials[wallKey]
+        ? {
+            wallMaterials: {
+              ...s.wallMaterials,
+              [wallKey]: { ...s.wallMaterials[wallKey], texRotation: rad },
+            },
+          }
+        : {},
+    ),
+
+  setFloorTexRotation: (roomId, rad) =>
+    set((s) =>
+      s.floorMaterials[roomId]
+        ? {
+            floorMaterials: {
+              ...s.floorMaterials,
+              [roomId]: { ...s.floorMaterials[roomId], texRotation: rad },
             },
           }
         : {},

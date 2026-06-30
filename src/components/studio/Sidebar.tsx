@@ -6,7 +6,7 @@ import { Crop as CropIcon, Copy, ClipboardPaste, CopyCheck } from 'lucide-react'
 import { FURNITURE_CATALOG_LIST } from '@/lib/constants/furniture-catalog'
 import { placeSingleItem } from '@/lib/studio/furniture-layout'
 import { Layers, Palette, Sofa, X, Loader2 } from 'lucide-react'
-import { MaterialTile, MaterialDetail, TexRepeatSlider } from './MaterialCard'
+import { MaterialTile, MaterialDetail, TexRepeatSlider, TexRotationSlider } from './MaterialCard'
 
 const BASE = 'https://interior-materials-api.onrender.com'
 
@@ -28,6 +28,7 @@ export default function Sidebar() {
     selectedFloorRoomId, floorMaterials, setFloorMaterial, clearFloorMaterial,
     setWallTexRepeat, setFloorTexRepeat,
     setWallCrop, setFloorCrop,
+    setWallTexRotation, setFloorTexRotation,
     applyWallToAll,
     rooms,
   } = useRoomStore()
@@ -127,6 +128,10 @@ export default function Sidebar() {
                     value={currentAssignment?.texRepeat ?? 2}
                     onChange={(n) => setWallTexRepeat(selectedWallKey, n)}
                   />
+                  <TexRotationSlider
+                    value={currentAssignment?.texRotation ?? 0}
+                    onChange={(r) => setWallTexRotation(selectedWallKey, r)}
+                  />
                   <button
                     onClick={() => setCropTarget({
                       image: currentMaterial!.image,
@@ -141,7 +146,7 @@ export default function Sidebar() {
               ) : (
               <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold text-brand">კედელი მონიშნულია</p>
+                  <p className="text-xs font-semibold text-brand">კედლის მხარე მონიშნულია</p>
                   {currentColor && (
                     <button
                       onClick={() => clearWallMaterial(selectedWallKey)}
@@ -163,7 +168,7 @@ export default function Sidebar() {
               )
             ) : (
               <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-3 text-center">
-                <p className="text-xs text-gray-400">3D-ში კლიკე კედელზე</p>
+                <p className="text-xs text-gray-400">3D-ში კლიკე კედლის მხარეზე</p>
                 <p className="text-xs text-gray-300 mt-0.5">შემდეგ აირჩიე ფერი</p>
               </div>
             )}
@@ -310,6 +315,10 @@ export default function Sidebar() {
                   <TexRepeatSlider
                     value={currentFloor.texRepeat ?? 2}
                     onChange={(n) => setFloorTexRepeat(selectedFloorRoomId, n)}
+                  />
+                  <TexRotationSlider
+                    value={currentFloor.texRotation ?? 0}
+                    onChange={(r) => setFloorTexRotation(selectedFloorRoomId, r)}
                   />
                   <button
                     onClick={() => setCropTarget({
