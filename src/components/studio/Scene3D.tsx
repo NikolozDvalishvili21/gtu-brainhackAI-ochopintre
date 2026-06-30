@@ -27,10 +27,6 @@ const API_BASE = "https://interior-materials-api.onrender.com";
 const proxiedImg = (url: string) =>
   url.startsWith("http") ? `${API_BASE}/img?url=${encodeURIComponent(url)}` : url;
 
-function makeWallKey(x1: number, z1: number, x2: number, z2: number) {
-  return `${Math.round(x1 * 1000)},${Math.round(z1 * 1000)},${Math.round(x2 * 1000)},${Math.round(z2 * 1000)}`;
-}
-
 // ─── Procedural textures ──────────────────────────────────────────────────────
 
 function makeTexture(type: string, color: string): THREE.CanvasTexture {
@@ -170,6 +166,7 @@ interface Opening {
 }
 
 interface WallEdge {
+  id: string; // უნიკალური (`${roomId}:${side}`) — per-room კედელი
   x1: number;
   z1: number;
   x2: number;
@@ -192,99 +189,48 @@ function buildAllWalls(
     width: number;
   }>,
 ): WallEdge[] {
-  // ─── Group walls by line, then merge overlapping intervals (union) ────────
-  // ორი ოთახის საერთო ან გადამფარავი კედელი ერთ ხაზზე ხვდება. ვაჯგუფებთ
-  // ხაზის (axis + perp კოორდინატი) მიხედვით და ვაერთიანებთ ინტერვალებს →
-  // საერთო კედელი ერთხელ იხატება (აღარ არის ორმაგი კედელი / ტექსტურის z-fight).
-  type RawOpening = { type: "door" | "window"; absStart: number; width: number };
-  type Line = {
-    axis: "x" | "z";
-    perp: number;
-    segs: Array<{ lo: number; hi: number }>;
-    openings: RawOpening[];
-  };
-  const lines = new Map<string, Line>();
-  const lineKey = (axis: "x" | "z", perp: number) =>
-    `${axis}:${Math.round(perp * 1000)}`;
-
+  // ─── Per-room walls ───────────────────────────────────────────────────────
+  // თითო ოთახს თავისი 4 კედელი (უნიკალური id-ით) — დამოუკიდებლად აირჩევა და
+  // იხატება, ფარგლები ერთ ოთახშია. საერთო კედლები ემთხვევა, მაგრამ per-wall
+  // polygonOffset z-fight-ს ფარავს.
+  // თითო ოთახის კედელი ნახევარსისქიანია (WALL_FACE_T = T/2), გარე წახნაგით
+  // საზღვარზე → ორი მეზობელი ნახევარი ერთ ნორმალურ კედლად იკვრება, თითო
+  // ოთახი თავის მხარეს ხატავს. perp ჩაწეულია T/4-ით (ნახევარსისქის ცენტრი).
+  const H = T / 4;
+  const all: WallEdge[] = [];
   for (const room of rooms) {
-    const { x, y: rz, width: W, height: D } = room;
+    const { x, y: rz, width: W, height: D, id: rid } = room;
     const edges: Array<{
       side: WallSide;
       axis: "x" | "z";
-      perp: number;
-      lo: number;
-      hi: number;
-      base: number; // openings offset-ის საწყისი (x ან z)
+      x1: number;
+      z1: number;
+      x2: number;
+      z2: number;
     }> = [
-      { side: "top", axis: "x", perp: rz, lo: x, hi: x + W, base: x },
-      { side: "bottom", axis: "x", perp: rz + D, lo: x, hi: x + W, base: x },
-      { side: "left", axis: "z", perp: x, lo: rz, hi: rz + D, base: rz },
-      { side: "right", axis: "z", perp: x + W, lo: rz, hi: rz + D, base: rz },
+      { side: "top", axis: "x", x1: x, z1: rz + H, x2: x + W, z2: rz + H },
+      { side: "bottom", axis: "x", x1: x, z1: rz + D - H, x2: x + W, z2: rz + D - H },
+      { side: "left", axis: "z", x1: x + H, z1: rz, x2: x + H, z2: rz + D },
+      { side: "right", axis: "z", x1: x + W - H, z1: rz, x2: x + W - H, z2: rz + D },
     ];
-
     for (const e of edges) {
-      const k = lineKey(e.axis, e.perp);
-      let line = lines.get(k);
-      if (!line) {
-        line = { axis: e.axis, perp: e.perp, segs: [], openings: [] };
-        lines.set(k, line);
-      }
-      line.segs.push({ lo: e.lo, hi: e.hi });
+      const openings: Opening[] = [];
       for (const d of doors)
-        if (d.roomId === room.id && d.wallSide === e.side)
-          line.openings.push({ type: "door", absStart: e.base + d.offset, width: d.width });
+        if (d.roomId === rid && d.wallSide === e.side)
+          openings.push({ type: "door", start: d.offset, width: d.width });
       for (const w of windows)
-        if (w.roomId === room.id && w.wallSide === e.side)
-          line.openings.push({ type: "window", absStart: e.base + w.offset, width: w.width });
-    }
-  }
-
-  const EPS = 1e-3;
-  const all: WallEdge[] = [];
-  for (const line of Array.from(lines.values())) {
-    const sorted = [...line.segs].sort((a, b) => a.lo - b.lo);
-    const merged: Array<{ lo: number; hi: number }> = [];
-    for (const s of sorted) {
-      const last = merged[merged.length - 1];
-      if (last && s.lo <= last.hi + EPS) last.hi = Math.max(last.hi, s.hi);
-      else merged.push({ lo: s.lo, hi: s.hi });
-    }
-    for (const seg of merged) {
-      const seen = new Set<string>();
-      const ops: Opening[] = [];
-      for (const o of line.openings) {
-        if (o.absStart + EPS < seg.lo || o.absStart - EPS > seg.hi) continue;
-        const sig = `${Math.round(o.absStart * 100)}:${Math.round(o.width * 100)}`;
-        if (seen.has(sig)) continue;
-        seen.add(sig);
-        ops.push({ type: o.type, start: o.absStart - seg.lo, width: o.width });
-      }
-      all.push(
-        line.axis === "x"
-          ? { x1: seg.lo, z1: line.perp, x2: seg.hi, z2: line.perp, length: seg.hi - seg.lo, axis: "x", openings: ops }
-          : { x1: line.perp, z1: seg.lo, x2: line.perp, z2: seg.hi, length: seg.hi - seg.lo, axis: "z", openings: ops },
-      );
-    }
-  }
-
-  // ─── Corner join ──────────────────────────────────────────────────────────
-  // X-კედლები T/2-ით გავაგრძელოთ, Z-კედლები T/2-ით შევამციროთ — სუფთა კუთხე.
-  const H = T / 2;
-  for (const e of all) {
-    if (e.axis === "x") {
-      e.x1 -= H;
-      e.x2 += H;
-      e.length += T;
-      e.openings = e.openings.map((op) => ({ ...op, start: op.start + H }));
-    } else {
-      e.z1 += H;
-      e.z2 -= H;
-      e.length = Math.max(0, e.length - T);
-      e.openings = e.openings.map((op) => ({
-        ...op,
-        start: Math.max(0, op.start - H),
-      }));
+        if (w.roomId === rid && w.wallSide === e.side)
+          openings.push({ type: "window", start: w.offset, width: w.width });
+      all.push({
+        id: `${rid}:${e.side}`,
+        x1: e.x1,
+        z1: e.z1,
+        x2: e.x2,
+        z2: e.z2,
+        length: e.axis === "x" ? Math.abs(e.x2 - e.x1) : Math.abs(e.z2 - e.z1),
+        axis: e.axis,
+        openings,
+      });
     }
   }
   return all;
@@ -447,9 +393,9 @@ function WallMesh({
 
   const segGeo = (len: number, h: number) =>
     edge.axis === "x" ? (
-      <boxGeometry args={[len, h, T]} />
+      <boxGeometry args={[len, h, T / 2]} />
     ) : (
-      <boxGeometry args={[T, h, len]} />
+      <boxGeometry args={[T / 2, h, len]} />
     );
 
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
@@ -1183,10 +1129,7 @@ export default function Scene3D() {
   );
 
   // ყველა კედლის key-ის რეგისტრაცია store-ში („ყველა კედელზე გადატანისთვის")
-  const wallKeysArr = useMemo(
-    () => walls.map((e) => makeWallKey(e.x1, e.z1, e.x2, e.z2)),
-    [walls],
-  );
+  const wallKeysArr = useMemo(() => walls.map((e) => e.id), [walls]);
   useEffect(() => {
     setWallKeys(wallKeysArr);
   }, [wallKeysArr, setWallKeys]);
@@ -1265,10 +1208,10 @@ export default function Scene3D() {
         ))}
 
         {walls.map((edge, i) => {
-          const wk = makeWallKey(edge.x1, edge.z1, edge.x2, edge.z2);
+          const wk = edge.id;
           return (
             <WallMesh
-              key={i}
+              key={edge.id}
               edge={edge}
               wKey={wk}
               wallIndex={i}

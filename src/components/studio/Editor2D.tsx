@@ -470,7 +470,22 @@ export default function Editor2D() {
     if (drag) {
       const dm = canvasToMeters(cx, cy)
       const orig = canvasToMeters(drag.startX, drag.startY)
-      updateRoom(drag.id, { x: snapV(drag.origX + dm.x - orig.x), y: snapV(drag.origY + dm.y - orig.y) })
+      const rawX = drag.origX + dm.x - orig.x
+      const rawY = drag.origY + dm.y - orig.y
+      const room = rooms.find(r => r.id === drag.id)
+      let nx = snapV(rawX), ny = snapV(rawY)
+      // ოთახ-ოთახზე snap — კიდე ზუსტად მიეკვრება მეზობელ ოთახს (საერთო კედელი)
+      if (room) {
+        const SNAP = 0.45, W = room.width, H = room.height
+        for (const o of rooms) {
+          if (o.id === drag.id) continue
+          for (const c of [o.x + o.width, o.x - W, o.x, o.x + o.width - W])
+            if (Math.abs(rawX - c) < SNAP) { nx = c; break }
+          for (const c of [o.y + o.height, o.y - H, o.y, o.y + o.height - H])
+            if (Math.abs(rawY - c) < SNAP) { ny = c; break }
+        }
+      }
+      updateRoom(drag.id, { x: nx, y: ny })
       return
     }
     if (drawState.phase === 'drawing-room' || drawState.phase === 'drawing-partition') {

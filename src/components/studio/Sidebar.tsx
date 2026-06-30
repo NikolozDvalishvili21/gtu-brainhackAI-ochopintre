@@ -141,7 +141,7 @@ export default function Sidebar() {
               ) : (
               <div className="bg-brand/5 border border-brand/20 rounded-xl p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs font-semibold text-brand">კედელი მონიშნულია</p>
+                  <p className="text-xs font-semibold text-brand">კედლის მხარე მონიშნულია</p>
                   {currentColor && (
                     <button
                       onClick={() => clearWallMaterial(selectedWallKey)}
@@ -163,7 +163,7 @@ export default function Sidebar() {
               )
             ) : (
               <div className="bg-gray-50 border border-dashed border-gray-200 rounded-xl p-3 text-center">
-                <p className="text-xs text-gray-400">3D-ში კლიკე კედელზე</p>
+                <p className="text-xs text-gray-400">3D-ში კლიკე კედლის მხარეზე</p>
                 <p className="text-xs text-gray-300 mt-0.5">შემდეგ აირჩიე ფერი</p>
               </div>
             )}

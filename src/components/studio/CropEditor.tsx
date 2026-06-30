@@ -1,6 +1,6 @@
 'use client'
 import { useRef, useState } from 'react'
-import { Check, X, Maximize } from 'lucide-react'
+import { Check, X, Maximize, RotateCw } from 'lucide-react'
 import type { Crop } from '@/lib/store/room-store'
 
 const API_BASE = 'https://interior-materials-api.onrender.com'
@@ -26,6 +26,7 @@ export default function CropEditor({
   onClose: () => void
 }) {
   const [rect, setRect] = useState<Crop>(initial ?? { x: 0.12, y: 0.12, w: 0.76, h: 0.76 })
+  const [rot, setRot] = useState<number>(initial?.rot ?? 0)
   const boxRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ mode: string; sx: number; sy: number; start: Crop } | null>(null)
 
@@ -86,7 +87,8 @@ export default function CropEditor({
           onPointerLeave={end}
         >
           <img src={proxied(image)} alt="" draggable={false}
-            className="pointer-events-none h-full w-full object-contain" />
+            style={{ transform: `rotate(${rot}deg)` }}
+            className="pointer-events-none h-full w-full object-contain transition-transform" />
           <div
             className="absolute cursor-move border-2 border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
             style={{ left: pct(rect.x), top: pct(rect.y), width: pct(rect.w), height: pct(rect.h) }}
@@ -99,12 +101,18 @@ export default function CropEditor({
           </div>
         </div>
 
-        <div className="mt-3 flex justify-between">
-          <button onClick={() => setRect({ x: 0, y: 0, w: 1, h: 1 })}
-            className="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50">
-            <Maximize size={13} /> სრული
-          </button>
-          <button onClick={() => { onApply(rect); onClose() }}
+        <div className="mt-3 flex items-center justify-between gap-2">
+          <div className="flex gap-2">
+            <button onClick={() => setRect({ x: 0, y: 0, w: 1, h: 1 })}
+              className="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50">
+              <Maximize size={13} /> სრული
+            </button>
+            <button onClick={() => setRot((r) => (r + 90) % 360)}
+              className="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50">
+              <RotateCw size={13} /> {rot}°
+            </button>
+          </div>
+          <button onClick={() => { onApply({ ...rect, rot }); onClose() }}
             className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-xs font-medium text-white hover:bg-brand-dark">
             <Check size={14} /> გამოყენება
           </button>
