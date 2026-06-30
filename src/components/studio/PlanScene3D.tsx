@@ -77,8 +77,9 @@ function RoomFloor({ ids, nodes }: { ids: string[]; nodes: PlanNode[] }) {
     })
     return new THREE.ShapeGeometry(shape)
   }, [ids, nodes])
+  // +π/2 X-ზე: shape (x,y) → 3D (x, 0, y) — ემთხვევა კედლების z=node.y-ს
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} receiveShadow geometry={geo}>
+    <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} receiveShadow geometry={geo}>
       <meshStandardMaterial color="#C8A877" roughness={0.85} side={THREE.DoubleSide} />
     </mesh>
   )
