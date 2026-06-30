@@ -196,7 +196,7 @@ export default function PlanEditor2D() {
   ]
 
   return (
-    <div className="flex h-screen flex-col bg-surface">
+    <div className="flex h-full flex-col bg-surface">
       <div className="flex items-center gap-2 border-b border-gray-200 bg-white px-4 py-2">
         <span className="mr-3 text-sm font-semibold text-gray-700">Wall-graph რედაქტორი (beta)</span>
         {tools.map(t => (

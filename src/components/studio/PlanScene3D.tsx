@@ -1,9 +1,10 @@
 'use client'
 import { useMemo } from 'react'
-import { Canvas } from '@react-three/fiber'
+import { Canvas, type ThreeEvent } from '@react-three/fiber'
 import { OrbitControls, Environment } from '@react-three/drei'
 import * as THREE from 'three'
 import { usePlanStore } from '@/lib/store/plan-store'
+import { useRoomStore } from '@/lib/store/room-store'
 import { detectRooms } from '@/lib/plan/graph'
 import type { PlanNode, Wall, Opening } from '@/lib/plan/types'
 
@@ -36,7 +37,10 @@ function splitWall(len: number, h: number, ops: Op[]): Solid[] {
   return solid
 }
 
-function WallMesh3D({ wall, a, b, ops }: { wall: Wall; a: PlanNode; b: PlanNode; ops: Opening[] }) {
+function WallMesh3D({ wall, a, b, ops, color, selected, onSelect }: {
+  wall: Wall; a: PlanNode; b: PlanNode; ops: Opening[]
+  color?: string; selected: boolean; onSelect: () => void
+}) {
   const dx = b.x - a.x
   const dz = b.y - a.y // plan-y → 3D z
   const len = Math.hypot(dx, dz) || 0.001
@@ -46,7 +50,7 @@ function WallMesh3D({ wall, a, b, ops }: { wall: Wall; a: PlanNode; b: PlanNode;
   const openings: Op[] = ops.map((o) => ({ start: o.t * len - o.width / 2, width: o.width, type: o.type }))
   const solids = splitWall(len, wall.height, openings)
   return (
-    <group>
+    <group onClick={(e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); onSelect() }}>
       {solids.map((s, i) => {
         const c = s.start + s.len / 2
         return (
@@ -58,7 +62,12 @@ function WallMesh3D({ wall, a, b, ops }: { wall: Wall; a: PlanNode; b: PlanNode;
             receiveShadow
           >
             <boxGeometry args={[s.len, s.h, wall.thickness]} />
-            <meshStandardMaterial color="#EFEAE2" roughness={0.9} />
+            <meshStandardMaterial
+              color={color ?? '#EFEAE2'}
+              roughness={0.9}
+              emissive={selected ? '#2D6A4F' : '#000000'}
+              emissiveIntensity={selected ? 0.25 : 0}
+            />
           </mesh>
         )
       })}
@@ -66,7 +75,10 @@ function WallMesh3D({ wall, a, b, ops }: { wall: Wall; a: PlanNode; b: PlanNode;
   )
 }
 
-function RoomFloor({ ids, nodes }: { ids: string[]; nodes: PlanNode[] }) {
+function RoomFloor({ ids, nodes, color, selected, onSelect }: {
+  ids: string[]; nodes: PlanNode[]
+  color?: string; selected: boolean; onSelect: () => void
+}) {
   const geo = useMemo(() => {
     const shape = new THREE.Shape()
     ids.forEach((id, i) => {
@@ -79,14 +91,31 @@ function RoomFloor({ ids, nodes }: { ids: string[]; nodes: PlanNode[] }) {
   }, [ids, nodes])
   // +π/2 X-ზე: shape (x,y) → 3D (x, 0, y) — ემთხვევა კედლების z=node.y-ს
   return (
-    <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} receiveShadow geometry={geo}>
-      <meshStandardMaterial color="#C8A877" roughness={0.85} side={THREE.DoubleSide} />
+    <mesh
+      rotation={[Math.PI / 2, 0, 0]}
+      position={[0, 0.01, 0]}
+      receiveShadow
+      geometry={geo}
+      onClick={(e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); onSelect() }}
+    >
+      <meshStandardMaterial
+        color={color ?? '#C8A877'}
+        roughness={0.85}
+        side={THREE.DoubleSide}
+        emissive={selected ? '#2D6A4F' : '#000000'}
+        emissiveIntensity={selected ? 0.2 : 0}
+      />
     </mesh>
   )
 }
 
 export default function PlanScene3D() {
   const { nodes, walls, openings } = usePlanStore()
+  // მასალები/მონიშვნა — არსებული room-store-დან (არსებული Sidebar მართავს)
+  const {
+    selectedWallKey, wallMaterials, setSelectedWall,
+    selectedFloorRoomId, floorMaterials, setSelectedFloor,
+  } = useRoomStore()
   const rooms = useMemo(() => detectRooms(nodes, walls), [nodes, walls])
   const opsByWall = useMemo(() => {
     const m = new Map<string, Opening[]>()
@@ -109,19 +138,39 @@ export default function PlanScene3D() {
 
   return (
     <div className="w-full h-full">
-      <Canvas camera={{ position: [bbox.cx + d * 0.5, d * 0.7, bbox.cz + d * 0.8], fov: 48 }} shadows>
+      <Canvas camera={{ position: [bbox.cx + d * 0.5, d * 0.7, bbox.cz + d * 0.8], fov: 48 }} shadows onPointerMissed={() => { setSelectedWall(null); setSelectedFloor(null) }}>
         <ambientLight intensity={0.5} />
         <directionalLight position={[bbox.cx + 6, 12, bbox.cz + 6]} intensity={1.1} castShadow shadow-mapSize={[2048, 2048]} />
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
           <planeGeometry args={[200, 200]} />
           <meshStandardMaterial color="#D6D0C8" roughness={1} />
         </mesh>
-        {rooms.map((r) => <RoomFloor key={r.id} ids={r.nodeIds} nodes={nodes} />)}
+        {rooms.map((r) => (
+          <RoomFloor
+            key={r.id}
+            ids={r.nodeIds}
+            nodes={nodes}
+            color={undefined}
+            selected={selectedFloorRoomId === r.id}
+            onSelect={() => setSelectedFloor(r.id)}
+          />
+        ))}
         {walls.map((w) => {
           const a = nodes.find((n) => n.id === w.a)
           const b = nodes.find((n) => n.id === w.b)
           if (!a || !b) return null
-          return <WallMesh3D key={w.id} wall={w} a={a} b={b} ops={opsByWall.get(w.id) ?? []} />
+          return (
+            <WallMesh3D
+              key={w.id}
+              wall={w}
+              a={a}
+              b={b}
+              ops={opsByWall.get(w.id) ?? []}
+              color={wallMaterials[w.id]?.color?.color}
+              selected={selectedWallKey === w.id}
+              onSelect={() => setSelectedWall(w.id)}
+            />
+          )
         })}
         <OrbitControls target={[bbox.cx, 1, bbox.cz]} maxPolarAngle={Math.PI / 2.05} />
         <Environment preset="apartment" />

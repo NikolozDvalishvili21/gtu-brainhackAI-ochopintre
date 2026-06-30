@@ -11,12 +11,22 @@ import { detectRooms, dist, projectOnWall } from "../plan/graph";
 const NODE_SNAP = 0.25; // მ — ახლომდებარე node-ზე მიკვრა (საერთო კვანძი)
 const uid = (p = "") => p + Math.random().toString(36).slice(2, 9);
 
+export type Selected = { type: "wall" | "room"; id: string } | null;
+
 interface PlanState {
   nodes: PlanNode[];
   walls: Wall[];
   openings: Opening[];
   defaultThickness: number;
   defaultHeight: number;
+
+  // ── materials / selection ──
+  selected: Selected;
+  wallColors: Record<string, string>; // wallId → hex
+  floorColors: Record<string, string>; // roomId → hex
+  setSelected: (sel: Selected) => void;
+  paintWall: (wallId: string, color: string) => void;
+  paintFloor: (roomId: string, color: string) => void;
 
   // actions
   addWall: (x1: number, y1: number, x2: number, y2: number) => void;
@@ -41,6 +51,15 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   openings: [],
   defaultThickness: 0.12,
   defaultHeight: 2.8,
+
+  selected: null,
+  wallColors: {},
+  floorColors: {},
+  setSelected: (sel) => set({ selected: sel }),
+  paintWall: (wallId, color) =>
+    set((s) => ({ wallColors: { ...s.wallColors, [wallId]: color } })),
+  paintFloor: (roomId, color) =>
+    set((s) => ({ floorColors: { ...s.floorColors, [roomId]: color } })),
 
   addWall: (x1, y1, x2, y2) =>
     set((s) => {

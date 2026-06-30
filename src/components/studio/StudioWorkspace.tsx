@@ -9,15 +9,19 @@ import { ensureMoodboardMatched } from "@/lib/materials/match-moodboard";
 import Navbar from "@/components/studio/Navbar";
 import Sidebar from "@/components/studio/Sidebar";
 import StudioAssistantPanel from "@/components/studio/StudioAssistantPanel";
-import Editor2D from "@/components/studio/Editor2D";
+import PlanEditor2D from "@/components/studio/PlanEditor2D";
 
-const Scene3D = dynamic(() => import("@/components/studio/Scene3D"), {
+// wall-graph 3D (room-store-ის Sidebar/მასალები ინარჩუნებს)
+const PlanScene3D = dynamic(() => import("@/components/studio/PlanScene3D"), {
   ssr: false,
 });
 
 export default function StudioWorkspace() {
-  const { viewMode, hydrateFromBrief } = useRoomStore();
+  const { viewMode, hydrateFromBrief, setRoomGenerated } = useRoomStore();
   const hydratedRef = useRef(false);
+
+  // wall-graph-ში „generate" ნაბიჯი არ არსებობს → 3D ხედი ყოველთვის ხელმისაწვდომი
+  useEffect(() => setRoomGenerated(true), [setRoomGenerated]);
 
   const applyMoodboard = useCallback(
     (board: Parameters<typeof moodboardToStudioPatch>[0]) => {
@@ -49,7 +53,7 @@ export default function StudioWorkspace() {
       <div className="flex flex-1 overflow-hidden">
         <StudioAssistantPanel />
         <main className="flex-1 overflow-hidden bg-surface">
-          {viewMode === "2d" ? <Editor2D /> : <Scene3D />}
+          {viewMode === "2d" ? <PlanEditor2D /> : <PlanScene3D />}
         </main>
         <Sidebar />
       </div>
