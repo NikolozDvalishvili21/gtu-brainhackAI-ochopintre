@@ -101,30 +101,6 @@ export function TexRepeatSlider({
   )
 }
 
-// მოტრიალების სლაიდერი — 0–360°, value/onChange რადიანებში
-export function TexRotationSlider({
-  value, onChange, label = 'მოტრიალება',
-}: { value: number; onChange: (rad: number) => void; label?: string }) {
-  const deg = Math.round((value * 180) / Math.PI)
-  return (
-    <div className="rounded-xl border border-gray-200 p-3">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="text-[11px] font-semibold text-gray-500">{label}</span>
-        <span className="text-[11px] text-gray-400">{deg}°</span>
-      </div>
-      <input
-        type="range" min={0} max={360} step={5} value={deg}
-        onChange={(e) => onChange((parseFloat(e.target.value) * Math.PI) / 180)}
-        className="w-full accent-brand cursor-pointer"
-      />
-      <div className="mt-0.5 flex justify-between text-[9px] text-gray-400">
-        <span>0°</span>
-        <span>360°</span>
-      </div>
-    </div>
-  )
-}
-
 export function MaterialDetail({ m, onClear }: { m: MaterialRef; onClear?: () => void }) {
   const price = priceLabel(m)
   const store = storeInfo(m.source)

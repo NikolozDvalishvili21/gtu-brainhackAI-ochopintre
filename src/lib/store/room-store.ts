@@ -86,6 +86,7 @@ export interface Crop {
   y: number;
   w: number;
   h: number;
+  rot?: number; // სურათის მოტრიალება გრადუსებში (0|90|180|270) — crop-ში ცხადდება
 }
 
 export interface MaterialRef {

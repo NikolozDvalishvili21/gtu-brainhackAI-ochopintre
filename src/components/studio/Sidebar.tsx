@@ -6,7 +6,7 @@ import { Crop as CropIcon, Copy, ClipboardPaste, CopyCheck } from 'lucide-react'
 import { FURNITURE_CATALOG_LIST } from '@/lib/constants/furniture-catalog'
 import { placeSingleItem } from '@/lib/studio/furniture-layout'
 import { Layers, Palette, Sofa, X, Loader2 } from 'lucide-react'
-import { MaterialTile, MaterialDetail, TexRepeatSlider, TexRotationSlider } from './MaterialCard'
+import { MaterialTile, MaterialDetail, TexRepeatSlider } from './MaterialCard'
 
 const BASE = 'https://interior-materials-api.onrender.com'
 
@@ -28,7 +28,6 @@ export default function Sidebar() {
     selectedFloorRoomId, floorMaterials, setFloorMaterial, clearFloorMaterial,
     setWallTexRepeat, setFloorTexRepeat,
     setWallCrop, setFloorCrop,
-    setWallTexRotation, setFloorTexRotation,
     applyWallToAll,
     rooms,
   } = useRoomStore()
@@ -127,10 +126,6 @@ export default function Sidebar() {
                   <TexRepeatSlider
                     value={currentAssignment?.texRepeat ?? 2}
                     onChange={(n) => setWallTexRepeat(selectedWallKey, n)}
-                  />
-                  <TexRotationSlider
-                    value={currentAssignment?.texRotation ?? 0}
-                    onChange={(r) => setWallTexRotation(selectedWallKey, r)}
                   />
                   <button
                     onClick={() => setCropTarget({
@@ -315,10 +310,6 @@ export default function Sidebar() {
                   <TexRepeatSlider
                     value={currentFloor.texRepeat ?? 2}
                     onChange={(n) => setFloorTexRepeat(selectedFloorRoomId, n)}
-                  />
-                  <TexRotationSlider
-                    value={currentFloor.texRotation ?? 0}
-                    onChange={(r) => setFloorTexRotation(selectedFloorRoomId, r)}
                   />
                   <button
                     onClick={() => setCropTarget({

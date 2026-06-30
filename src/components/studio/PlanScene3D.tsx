@@ -24,14 +24,29 @@ function useImageTexture(url?: string | null, repeat = 2, crop?: Crop): THREE.Te
     img.crossOrigin = 'anonymous'
     img.onload = () => {
       if (cancelled) return
-      const w = img.naturalWidth, h = img.naturalHeight
+      const w0 = img.naturalWidth, h0 = img.naturalHeight
+      // 1) crop
       const cr = crop ?? { x: 0, y: 0, w: 1, h: 1 }
-      const sx = Math.max(0, Math.round(cr.x * w)), sy = Math.max(0, Math.round(cr.y * h))
-      const sw = Math.max(1, Math.min(w - sx, Math.round(cr.w * w)))
-      const sh = Math.max(1, Math.min(h - sy, Math.round(cr.h * h)))
-      const c = document.createElement('canvas'); c.width = sw; c.height = sh
-      c.getContext('2d')!.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
-      const t = new THREE.CanvasTexture(c)
+      const sx = Math.max(0, Math.round(cr.x * w0)), sy = Math.max(0, Math.round(cr.y * h0))
+      const sw = Math.max(1, Math.min(w0 - sx, Math.round(cr.w * w0)))
+      const sh = Math.max(1, Math.min(h0 - sy, Math.round(cr.h * h0)))
+      const cropC = document.createElement('canvas'); cropC.width = sw; cropC.height = sh
+      cropC.getContext('2d')!.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
+      // 2) თავისუფალი მოტრიალება — repeat-pattern-ით ვავსებ (კიდეები არ ცარიელდება, shear არ ხდება)
+      const rot = (((crop?.rot ?? 0) % 360) + 360) % 360
+      let src: HTMLCanvasElement = cropC
+      if (rot !== 0) {
+        const out = document.createElement('canvas'); out.width = sw; out.height = sh
+        const octx = out.getContext('2d')!
+        const pat = octx.createPattern(cropC, 'repeat')!
+        octx.translate(sw / 2, sh / 2)
+        octx.rotate((rot * Math.PI) / 180)
+        octx.fillStyle = pat
+        const big = Math.ceil(Math.hypot(sw, sh)) + 2
+        octx.fillRect(-big, -big, big * 2, big * 2)
+        src = out
+      }
+      const t = new THREE.CanvasTexture(src)
       t.colorSpace = THREE.SRGBColorSpace
       t.wrapS = t.wrapT = THREE.RepeatWrapping
       t.repeat.set(repeat, repeat)
@@ -42,7 +57,7 @@ function useImageTexture(url?: string | null, repeat = 2, crop?: Crop): THREE.Te
     img.src = proxied(url)
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, crop?.x, crop?.y, crop?.w, crop?.h])
+  }, [url, crop?.x, crop?.y, crop?.w, crop?.h, crop?.rot])
   useEffect(() => { if (tex) { tex.repeat.set(repeat, repeat); tex.needsUpdate = true } }, [tex, repeat])
   return tex
 }
@@ -82,11 +97,10 @@ function splitWall(len: number, h: number, ops: Op[]): Solid[] {
 const EDGE_COLOR = '#E8E3DB' // კედლის წიბოები (სისქე)
 
 // ტექსტურის სეგმენტ-კლონი: repeat/offset სეგმენტის რეალური ზომა/პოზიციით → უწყვეტი
-function segTexture(base: THREE.Texture | null, s: Solid, tpm: number, rot: number): THREE.Texture | null {
+// (მოტრიალება უკვე ჩაშენებულია სურათში crop-ის ეტაპზე)
+function segTexture(base: THREE.Texture | null, s: Solid, tpm: number): THREE.Texture | null {
   if (!base) return null
   const t = base.clone()
-  t.center.set(0.5, 0.5)
-  t.rotation = rot
   t.repeat.set(tpm * s.len, tpm * s.h)
   t.offset.set(tpm * s.start, tpm * s.yBase)
   t.needsUpdate = true
@@ -105,10 +119,8 @@ function WallSegment({
 }) {
   const tpmA = tilesPerMeter(assignA?.texRepeat ?? 2)
   const tpmB = tilesPerMeter(assignB?.texRepeat ?? 2)
-  const rotA = assignA?.texRotation ?? 0
-  const rotB = assignB?.texRotation ?? 0
-  const texA = useMemo(() => segTexture(baseTexA, s, tpmA, rotA), [baseTexA, s.start, s.len, s.yBase, s.h, tpmA, rotA])
-  const texB = useMemo(() => segTexture(baseTexB, s, tpmB, rotB), [baseTexB, s.start, s.len, s.yBase, s.h, tpmB, rotB])
+  const texA = useMemo(() => segTexture(baseTexA, s, tpmA), [baseTexA, s.start, s.len, s.yBase, s.h, tpmA])
+  const texB = useMemo(() => segTexture(baseTexB, s, tpmB), [baseTexB, s.start, s.len, s.yBase, s.h, tpmB])
   const selA = selKey === `${wallId}#A`
   const selB = selKey === `${wallId}#B`
   const colorA = assignA?.color?.color
@@ -281,15 +293,13 @@ function RoomFloor({ ids, nodes, mat, selected, onSelect }: {
   }, [ids, nodes])
   const tex = useImageTexture(mat?.image, 1, mat?.crop)
   // ShapeGeometry-ის UV = shape coords (მეტრებში) → repeat = tiles/მეტრში
+  // (მოტრიალება ჩაშენებულია სურათში crop-ის ეტაპზე)
   const tpm = tilesPerMeter(mat?.texRepeat ?? 2)
-  const rot = mat?.texRotation ?? 0
   useEffect(() => {
     if (!tex) return
-    tex.center.set(0.5, 0.5)
-    tex.rotation = rot
     tex.repeat.set(tpm, tpm)
     tex.needsUpdate = true
-  }, [tex, tpm, rot])
+  }, [tex, tpm])
   // +π/2 X-ზე: shape (x,y) → 3D (x, 0, y) — ემთხვევა კედლების z=node.y-ს
   return (
     <mesh
