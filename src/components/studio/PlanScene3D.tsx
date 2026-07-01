@@ -1,7 +1,8 @@
 'use client'
 import { useMemo, useState, useEffect, useRef, Suspense } from 'react'
 import { Canvas, useThree, useFrame, type ThreeEvent } from '@react-three/fiber'
-import { OrbitControls, Environment, useGLTF, TransformControls, PointerLockControls } from '@react-three/drei'
+import { OrbitControls, Environment, useGLTF, TransformControls, PointerLockControls, SoftShadows } from '@react-three/drei'
+import { EffectComposer, N8AO, Bloom, SMAA } from '@react-three/postprocessing'
 import { Move, RotateCw as RotateIcon, Maximize2, Trash2 } from 'lucide-react'
 import * as THREE from 'three'
 import { usePlanStore } from '@/lib/store/plan-store'
@@ -467,8 +468,11 @@ export default function PlanScene3D() {
   const [locked, setLocked] = useState(false)
   const [dayNight, setDayNight] = useState<'day' | 'night'>('day')
   const [showCeiling, setShowCeiling] = useState(false)
+  const [fx, setFx] = useState(true) // post-processing (AO + bloom)
   const wrapRef = useRef<HTMLDivElement>(null)
   const ceilingH = useMemo(() => (walls.length ? Math.max(...walls.map((w) => w.height)) : 2.8), [walls])
+  // directional light-ის სამიზნე — ოთახის ცენტრი (თორემ shadow origin-ზეა და frustum ცდება)
+  const [lightTarget] = useState(() => new THREE.Object3D())
   function exportPNG() {
     const canvas = wrapRef.current?.querySelector('canvas') as HTMLCanvasElement | null
     if (!canvas) return
@@ -505,6 +509,11 @@ export default function PlanScene3D() {
     return { cx: (minx + maxx) / 2, cz: (minz + maxz) / 2, span: Math.max(maxx - minx, maxz - minz, 4) }
   }, [nodes])
   const d = bbox.span * 1.3 + 5
+  const shadowFr = bbox.span * 0.75 + 4 // shadow camera frustum — სცენაზე მორგებული
+  useEffect(() => {
+    lightTarget.position.set(bbox.cx, 0, bbox.cz)
+    lightTarget.updateMatrixWorld()
+  }, [lightTarget, bbox.cx, bbox.cz])
 
   const gizmoTools = [
     { m: 'translate' as const, icon: <Move size={15} />, label: 'გადატანა' },
@@ -556,19 +565,53 @@ export default function PlanScene3D() {
       <Canvas
         camera={{ position: [bbox.cx + d * 0.5, d * 0.7, bbox.cz + d * 0.8], fov: 48 }}
         shadows
-        gl={{ preserveDrawingBuffer: true }}
+        dpr={[1, 2]}
+        gl={{ preserveDrawingBuffer: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: dayNight === 'day' ? 1.05 : 0.9 }}
         onPointerMissed={() => { setSelectedWall(null); setSelectedFloor(null); setSelectedFurniture(null) }}
       >
+        {/* რბილი (PCSS) ჩრდილები — რეალისტური მოსაზღვრე */}
+        <SoftShadows size={18} samples={12} focus={0.85} />
         <color attach="background" args={[dayNight === 'day' ? '#EAF0F4' : '#0E1524']} />
+        <primitive object={lightTarget} />
         {dayNight === 'day' ? (
           <>
-            <ambientLight intensity={0.5} />
-            <directionalLight position={[bbox.cx + 6, 12, bbox.cz + 6]} intensity={1.1} castShadow shadow-mapSize={[2048, 2048]} />
+            <ambientLight intensity={0.4} />
+            <hemisphereLight args={['#ffffff', '#c9beac', 0.5]} />
+            <directionalLight
+              position={[bbox.cx + 7, 16, bbox.cz + 5]}
+              target={lightTarget}
+              intensity={1.1}
+              castShadow
+              shadow-mapSize={[2048, 2048]}
+              shadow-bias={-0.0004}
+              shadow-normalBias={0.02}
+              shadow-camera-near={0.5}
+              shadow-camera-far={60}
+              shadow-camera-left={-shadowFr}
+              shadow-camera-right={shadowFr}
+              shadow-camera-top={shadowFr}
+              shadow-camera-bottom={-shadowFr}
+            />
           </>
         ) : (
           <>
             <ambientLight intensity={0.13} color="#2a3a55" />
-            <directionalLight position={[bbox.cx + 6, 12, bbox.cz + 6]} intensity={0.25} color="#8fa8d0" castShadow shadow-mapSize={[2048, 2048]} />
+            <directionalLight
+              position={[bbox.cx + 7, 16, bbox.cz + 5]}
+              target={lightTarget}
+              intensity={0.25}
+              color="#8fa8d0"
+              castShadow
+              shadow-mapSize={[2048, 2048]}
+              shadow-bias={-0.0004}
+              shadow-normalBias={0.02}
+              shadow-camera-near={0.5}
+              shadow-camera-far={60}
+              shadow-camera-left={-shadowFr}
+              shadow-camera-right={shadowFr}
+              shadow-camera-top={shadowFr}
+              shadow-camera-bottom={-shadowFr}
+            />
             {rooms.map((r) => (
               <pointLight key={r.id} position={[r.centroid.x, ceilingH - 0.4, r.centroid.y]} intensity={10} distance={7} decay={2} color="#ffd7a0" />
             ))}
@@ -619,6 +662,13 @@ export default function PlanScene3D() {
           <OrbitControls makeDefault target={[bbox.cx, 1, bbox.cz]} maxPolarAngle={Math.PI / 2.05} />
         )}
         <Environment preset={dayNight === 'day' ? 'apartment' : 'night'} />
+        {fx && (
+          <EffectComposer multisampling={0}>
+            <N8AO aoRadius={1} intensity={2.2} distanceFalloff={1} halfRes />
+            <Bloom intensity={0.12} luminanceThreshold={0.9} luminanceSmoothing={0.2} mipmapBlur />
+            <SMAA />
+          </EffectComposer>
+        )}
       </Canvas>
 
       {/* ადამიანის ხედის ღილაკი */}
@@ -645,6 +695,12 @@ export default function PlanScene3D() {
             className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium ${showCeiling ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
           >
             {showCeiling ? '▣' : '▢'} ჭერი
+          </button>
+          <button
+            onClick={() => setFx((v) => !v)}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium ${fx ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+          >
+            ✨ ეფექტები
           </button>
           <button
             onClick={exportPNG}
