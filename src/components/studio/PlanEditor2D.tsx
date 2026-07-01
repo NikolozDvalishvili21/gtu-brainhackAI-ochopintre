@@ -2,6 +2,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { usePlanStore } from '@/lib/store/plan-store'
 import { useRoomStore } from '@/lib/store/room-store'
+import { historyFocus } from '@/lib/store/history-focus'
 import { FURNITURE_CATALOG, VALID_FURNITURE_TYPES } from '@/lib/constants/furniture-catalog'
 import { detectRooms, projectOnWall } from '@/lib/plan/graph'
 import type { PlanNode } from '@/lib/plan/types'
@@ -27,10 +28,23 @@ export default function PlanEditor2D() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const woodRef = useRef<CanvasPattern | null>(null)
-  const { nodes, walls, openings, addWall, moveNode, removeWall, addOpening, setWallDims, removeOpening, pushHistory, undo, redo, past, future } = usePlanStore()
-  const { furniture, addFurniture, updateFurniture, removeFurniture, selectedFurnitureId, setSelectedFurniture } = useRoomStore()
-  const canUndo = past.length > 0
-  const canRedo = future.length > 0
+  const { nodes, walls, openings, addWall, moveNode, removeWall, addOpening, setWallDims, removeOpening, pushHistory, past, future } = usePlanStore()
+  const { furniture, addFurniture, updateFurniture, removeFurniture, selectedFurnitureId, setSelectedFurniture, pushFurnHistory, furnPast, furnFuture } = useRoomStore()
+  const canUndo = past.length > 0 || furnPast.length > 0
+  const canRedo = future.length > 0 || furnFuture.length > 0
+  // unified undo/redo — plan (გეომეტრია) + furniture ერთ Ctrl+Z-ზე (focus-ის მიხედვით)
+  const unifiedUndo = useCallback(() => {
+    const ps = usePlanStore.getState(); const rs = useRoomStore.getState()
+    if (historyFocus.store === 'furn' && rs.canUndoFurniture()) rs.undoFurniture()
+    else if (ps.canUndo()) ps.undo()
+    else if (rs.canUndoFurniture()) rs.undoFurniture()
+  }, [])
+  const unifiedRedo = useCallback(() => {
+    const ps = usePlanStore.getState(); const rs = useRoomStore.getState()
+    if (historyFocus.store === 'furn' && rs.canRedoFurniture()) rs.redoFurniture()
+    else if (ps.canRedo()) ps.redo()
+    else if (rs.canRedoFurniture()) rs.redoFurniture()
+  }, [])
   const [size, setSize] = useState({ w: 1000, h: 700 })
 
   const [tool, setTool] = useState<Tool>('wall')
@@ -43,6 +57,7 @@ export default function PlanEditor2D() {
   const [shiftKey, setShiftKey] = useState(false) // Shift → 45° კუთხის ფიქსაცია
   const [furnType, setFurnType] = useState<string>('sofa') // furniture tool-ის აქტიური ტიპი
   const [furnDrag, setFurnDrag] = useState<{ id: string; dx: number; dy: number } | null>(null)
+  const furnMovedRef = useRef(false) // ავეჯის drag-ის პირველ მოძრაობაზე history snapshot
   const [lenInput, setLenInput] = useState('') // კედლის სიგრძის ციფრული ველი
   const lenFocus = useRef(false)
   const [hoverWall, setHoverWall] = useState<string | null>(null) // erase tool-ის hover (კედელი)
@@ -184,6 +199,7 @@ export default function PlanEditor2D() {
       if (hitId) {
         const f = furniture.find(ff => ff.id === hitId)!
         setSelectedFurniture(hitId)
+        furnMovedRef.current = false
         setFurnDrag({ id: hitId, dx: f.x - mm.x, dy: f.z - mm.y })
         return
       }
@@ -266,6 +282,7 @@ export default function PlanEditor2D() {
       const mm = toM(cx, cy)
       const f = furniture.find(ff => ff.id === furnDrag.id)
       if (f) {
+        if (!furnMovedRef.current) { pushFurnHistory(); furnMovedRef.current = true }
         const snapped = snapFurnitureToWall(mm.x + furnDrag.dx, mm.y + furnDrag.dy, f.depth, f.rotation)
         updateFurniture(furnDrag.id, { x: snapped.x, z: snapped.z, rotation: snapped.rotation })
       }
@@ -322,13 +339,13 @@ export default function PlanEditor2D() {
       // e.code = ფიზიკური კლავიში → მუშაობს ქართულ განლაგებაზეც (e.key layout-ს ეყრდნობა)
       if (meta && e.code === 'KeyZ') {
         e.preventDefault()
-        if (e.shiftKey) redo(); else undo()
+        if (e.shiftKey) unifiedRedo(); else unifiedUndo()
       } else if (meta && e.code === 'KeyY') {
-        e.preventDefault(); redo()
+        e.preventDefault(); unifiedRedo()
       }
     }
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key)
-  }, [undo, redo, selWall, removeWall])
+  }, [unifiedUndo, unifiedRedo, selWall, removeWall])
 
   // canvas fullscreen — კონტეინერის ზომაზე მორგება
   useEffect(() => {
@@ -595,11 +612,11 @@ export default function PlanEditor2D() {
           </button>
         ))}
         <div className="ml-auto flex items-center gap-1">
-          <button onClick={undo} disabled={!canUndo} title="დაბრუნება (Ctrl+Z)"
+          <button onClick={unifiedUndo} disabled={!canUndo} title="დაბრუნება (Ctrl+Z)"
             className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium ${canUndo ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-300 cursor-not-allowed'}`}>
             <Undo2 size={15} />
           </button>
-          <button onClick={redo} disabled={!canRedo} title="გამეორება (Ctrl+Y)"
+          <button onClick={unifiedRedo} disabled={!canRedo} title="გამეორება (Ctrl+Y)"
             className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium ${canRedo ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-300 cursor-not-allowed'}`}>
             <Redo2 size={15} />
           </button>

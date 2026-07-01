@@ -2,8 +2,7 @@
 import { useMemo, useState, useEffect, useRef, Suspense } from 'react'
 import { Canvas, useThree, useFrame, type ThreeEvent } from '@react-three/fiber'
 import { OrbitControls, Environment, useGLTF, TransformControls, PointerLockControls, SoftShadows } from '@react-three/drei'
-import { EffectComposer, N8AO, Bloom, SMAA } from '@react-three/postprocessing'
-import { Move, RotateCw as RotateIcon, Maximize2, Trash2 } from 'lucide-react'
+import { Move, RotateCw as RotateIcon, Maximize2, Trash2, Copy } from 'lucide-react'
 import * as THREE from 'three'
 import { usePlanStore } from '@/lib/store/plan-store'
 import { useRoomStore } from '@/lib/store/room-store'
@@ -119,7 +118,7 @@ function WallSegment({
   s: Solid; baseTexA: THREE.Texture | null; baseTexB: THREE.Texture | null
   assignA?: WallMaterialAssignment; assignB?: WallMaterialAssignment
   thickness: number; position: [number, number, number]; rotY: number
-  wallId: string; selKey: string | null; onSelect: (side: 'A' | 'B') => void
+  wallId: string; selKey: string | null; onSelect: (side: 'A' | 'B', x: number, y: number) => void
 }) {
   const tpmA = tilesPerMeter(assignA?.texRepeat ?? 2)
   const tpmB = tilesPerMeter(assignB?.texRepeat ?? 2)
@@ -137,7 +136,8 @@ function WallSegment({
       receiveShadow
       onClick={(e: ThreeEvent<MouseEvent>) => {
         e.stopPropagation()
-        onSelect(e.face && e.face.normal.z >= 0 ? 'A' : 'B')
+        const ne = e.nativeEvent as MouseEvent | undefined
+        onSelect(e.face && e.face.normal.z >= 0 ? 'A' : 'B', ne?.offsetX ?? 0, ne?.offsetY ?? 0)
       }}
     >
       <boxGeometry args={[s.len, s.h, thickness]} />
@@ -233,7 +233,7 @@ function OpeningVisual({ o, px, pz, rotY, thickness }: {
 function WallMesh3D({ wall, a, b, ops, assignA, assignB, selKey, onSelect }: {
   wall: Wall; a: PlanNode; b: PlanNode; ops: Opening[]
   assignA?: WallMaterialAssignment; assignB?: WallMaterialAssignment
-  selKey: string | null; onSelect: (side: 'A' | 'B') => void
+  selKey: string | null; onSelect: (side: 'A' | 'B', x: number, y: number) => void
 }) {
   const dx = b.x - a.x
   const dz = b.y - a.y // plan-y → 3D z
@@ -354,7 +354,7 @@ function FurnitureModel({ item, url }: { item: Furniture; url: string }) {
 }
 
 // ავეჯის ერთეული — მონიშვნა + გადაადგილება/მოტრიალება/ზომა გიზმოთი
-function FurnitureItem({ item }: { item: Furniture }) {
+function FurnitureItem({ item, onPick }: { item: Furniture; onPick?: (x: number, y: number) => void }) {
   const { setSelectedFurniture, selectedFurnitureId, transformMode, updateFurniture } = useRoomStore()
   const isSelected = selectedFurnitureId === item.id
   const groupRef = useRef<THREE.Group>(null)
@@ -381,14 +381,20 @@ function FurnitureItem({ item }: { item: Furniture }) {
         position={[item.x, item.y, item.z]}
         rotation={[0, item.rotation, 0]}
         scale={item.scale ?? 1}
-        onClick={(e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); setSelectedFurniture(item.id) }}
+        onClick={(e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); setSelectedFurniture(item.id); const ne = e.nativeEvent as MouseEvent | undefined; onPick?.(ne?.offsetX ?? 0, ne?.offsetY ?? 0) }}
       >
         <Suspense fallback={null}>
           <FurnitureModel item={item} url={url} />
         </Suspense>
       </group>
       {isSelected && ready && groupRef.current && (
-        <TransformControls object={groupRef.current} mode={transformMode} {...show} onObjectChange={commit} />
+        <TransformControls
+          object={groupRef.current}
+          mode={transformMode}
+          {...show}
+          onMouseDown={() => useRoomStore.getState().pushFurnHistory()}
+          onObjectChange={commit}
+        />
       )}
     </>
   )
@@ -451,15 +457,19 @@ function FirstPersonMovement({ bbox }: { bbox: { cx: number; cz: number; span: n
 }
 
 export default function PlanScene3D() {
-  const { nodes, walls, openings } = usePlanStore()
+  const { nodes, walls, openings, setWallDims, removeWall } = usePlanStore()
   // მასალები/მონიშვნა — არსებული room-store-დან (არსებული Sidebar მართავს)
   const {
     selectedWallKey, wallMaterials, setSelectedWall,
     selectedFloorRoomId, floorMaterials, setSelectedFloor,
     furniture, selectedFurnitureId, setSelectedFurniture,
-    transformMode, setTransformMode, removeFurniture, updateFurniture,
+    transformMode, setTransformMode, removeFurniture, updateFurniture, addFurniture,
     setWallKeys,
   } = useRoomStore()
+  // 3D floating კონტექსტ-პანელის პოზიცია (ეკრანის პიქსელებში, canvas-თან)
+  const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null)
+  const selWallId = selectedWallKey ? selectedWallKey.split('#')[0] : null
+  const selWall3D = selWallId ? walls.find((w) => w.id === selWallId) : null
   // „ყველა კედელზე" — ორივე მხარის key-ები რეგისტრირდება
   useEffect(() => {
     setWallKeys(walls.flatMap((w) => [`${w.id}#A`, `${w.id}#B`]))
@@ -468,7 +478,6 @@ export default function PlanScene3D() {
   const [locked, setLocked] = useState(false)
   const [dayNight, setDayNight] = useState<'day' | 'night'>('day')
   const [showCeiling, setShowCeiling] = useState(false)
-  const [fx, setFx] = useState(true) // post-processing (AO + bloom)
   const wrapRef = useRef<HTMLDivElement>(null)
   const ceilingH = useMemo(() => (walls.length ? Math.max(...walls.map((w) => w.height)) : 2.8), [walls])
   // directional light-ის სამიზნე — ოთახის ცენტრი (თორემ shadow origin-ზეა და frustum ცდება)
@@ -523,8 +532,34 @@ export default function PlanScene3D() {
 
   return (
     <div ref={wrapRef} className="relative w-full h-full">
-      {selectedFurnitureId && selFurn && !firstPerson && (
-        <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 flex-col items-stretch gap-1.5 rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
+      {/* კედლის floating პანელი — კლიკის ადგილას */}
+      {selWall3D && ctx && !firstPerson && (
+        <div style={{ left: ctx.x, top: ctx.y }} className="absolute z-30 flex -translate-x-1/2 translate-y-10 items-center gap-2 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur">
+          <span className="text-xs font-semibold text-gray-700">კედელი</span>
+          <label className="flex items-center gap-1 text-xs text-gray-500">
+            სისქე
+            <input type="number" min={4} step={1} value={Math.round(selWall3D.thickness * 100)}
+              onChange={(e) => setWallDims(selWall3D.id, { thickness: (parseFloat(e.target.value) || 4) / 100 })}
+              className="w-14 rounded-md border border-gray-300 px-1.5 py-0.5 text-right text-sm focus:border-brand focus:outline-none" />
+            სმ
+          </label>
+          <label className="flex items-center gap-1 text-xs text-gray-500">
+            სიმაღლე
+            <input type="number" min={1} step={0.1} value={selWall3D.height}
+              onChange={(e) => setWallDims(selWall3D.id, { height: Math.max(1, parseFloat(e.target.value) || 1) })}
+              className="w-16 rounded-md border border-gray-300 px-1.5 py-0.5 text-right text-sm focus:border-brand focus:outline-none" />
+            მ
+          </label>
+          <button onClick={() => { removeWall(selWall3D.id); setSelectedWall(null); setCtx(null) }}
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-500 hover:bg-red-50">
+            <Trash2 size={13} /> წაშლა
+          </button>
+          <button onClick={() => setCtx(null)} className="rounded-lg px-1.5 py-1 text-xs text-gray-400 hover:bg-gray-100">✕</button>
+        </div>
+      )}
+
+      {selectedFurnitureId && selFurn && ctx && !firstPerson && (
+        <div style={{ left: ctx.x, top: ctx.y }} className="absolute z-30 flex -translate-x-1/2 translate-y-10 flex-col items-stretch gap-1.5 rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
           <div className="flex items-center gap-1">
             {gizmoTools.map((b) => (
               <button
@@ -539,7 +574,17 @@ export default function PlanScene3D() {
             ))}
             <div className="mx-0.5 h-5 w-px bg-gray-200" />
             <button
-              onClick={() => removeFurniture(selectedFurnitureId)}
+              onClick={() => {
+                const id = 'f_' + Math.random().toString(36).slice(2, 9)
+                addFurniture({ ...selFurn, id, x: selFurn.x + 0.4, z: selFurn.z + 0.4 })
+                setSelectedFurniture(id)
+              }}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100"
+            >
+              <Copy size={15} /> დუბლ.
+            </button>
+            <button
+              onClick={() => { removeFurniture(selectedFurnitureId); setCtx(null) }}
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50"
             >
               <Trash2 size={15} /> წაშლა
@@ -567,7 +612,7 @@ export default function PlanScene3D() {
         shadows
         dpr={[1, 2]}
         gl={{ preserveDrawingBuffer: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: dayNight === 'day' ? 1.05 : 0.9 }}
-        onPointerMissed={() => { setSelectedWall(null); setSelectedFloor(null); setSelectedFurniture(null) }}
+        onPointerMissed={() => { setSelectedWall(null); setSelectedFloor(null); setSelectedFurniture(null); setCtx(null) }}
       >
         {/* რბილი (PCSS) ჩრდილები — რეალისტური მოსაზღვრე */}
         <SoftShadows size={18} samples={12} focus={0.85} />
@@ -648,11 +693,11 @@ export default function PlanScene3D() {
               assignA={wallMaterials[`${w.id}#A`]}
               assignB={wallMaterials[`${w.id}#B`]}
               selKey={selectedWallKey}
-              onSelect={(side) => setSelectedWall(`${w.id}#${side}`)}
+              onSelect={(side, x, y) => { setSelectedWall(`${w.id}#${side}`); setCtx({ x, y }) }}
             />
           )
         })}
-        {furniture.map((f) => <FurnitureItem key={f.id} item={f} />)}
+        {furniture.map((f) => <FurnitureItem key={f.id} item={f} onPick={(x, y) => setCtx({ x, y })} />)}
         {firstPerson ? (
           <>
             <FirstPersonMovement bbox={bbox} />
@@ -662,13 +707,6 @@ export default function PlanScene3D() {
           <OrbitControls makeDefault target={[bbox.cx, 1, bbox.cz]} maxPolarAngle={Math.PI / 2.05} />
         )}
         <Environment preset={dayNight === 'day' ? 'apartment' : 'night'} />
-        {fx && (
-          <EffectComposer multisampling={0}>
-            <N8AO aoRadius={1} intensity={2.2} distanceFalloff={1} halfRes />
-            <Bloom intensity={0.12} luminanceThreshold={0.9} luminanceSmoothing={0.2} mipmapBlur />
-            <SMAA />
-          </EffectComposer>
-        )}
       </Canvas>
 
       {/* ადამიანის ხედის ღილაკი */}
@@ -695,12 +733,6 @@ export default function PlanScene3D() {
             className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium ${showCeiling ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
           >
             {showCeiling ? '▣' : '▢'} ჭერი
-          </button>
-          <button
-            onClick={() => setFx((v) => !v)}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium ${fx ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
-          >
-            ✨ ეფექტები
           </button>
           <button
             onClick={exportPNG}

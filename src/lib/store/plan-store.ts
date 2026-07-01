@@ -7,6 +7,7 @@ import type {
   RoomPoly,
 } from "../plan/types";
 import { detectRooms, dist, projectOnWall } from "../plan/graph";
+import { historyFocus } from "./history-focus";
 
 const NODE_SNAP = 0.25; // მ — ახლომდებარე node-ზე მიკვრა (საერთო კვანძი)
 const uid = (p = "") => p + Math.random().toString(36).slice(2, 9);
@@ -82,11 +83,13 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   past: [],
   future: [],
   // მიმდინარე გეომეტრიის snapshot-ს past-ში, future ცარიელდება (ახალი ქმედება)
-  pushHistory: () =>
+  pushHistory: () => {
+    historyFocus.store = "plan";
     set((s) => ({
       past: [...s.past, { nodes: s.nodes, walls: s.walls, openings: s.openings }].slice(-HIST),
       future: [],
-    })),
+    }));
+  },
   undo: () =>
     set((s) => {
       if (!s.past.length) return {};
