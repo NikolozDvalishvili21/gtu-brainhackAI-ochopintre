@@ -43,6 +43,9 @@ export default function PlanEditor2D() {
   const [shiftKey, setShiftKey] = useState(false) // Shift → 45° კუთხის ფიქსაცია
   const [furnType, setFurnType] = useState<string>('sofa') // furniture tool-ის აქტიური ტიპი
   const [furnDrag, setFurnDrag] = useState<{ id: string; dx: number; dy: number } | null>(null)
+  const [lenInput, setLenInput] = useState('') // კედლის სიგრძის ციფრული ველი
+  const lenFocus = useRef(false)
+  const selFurn = furniture.find(f => f.id === selectedFurnitureId)
 
   const wx = (m: number) => m * SCALE * zoom + pan.x
   const wy = (m: number) => m * SCALE * zoom + pan.y
@@ -191,10 +194,31 @@ export default function PlanEditor2D() {
       const wid = hitWall(cx, cy); if (wid) removeWall(wid)
     }
   }
+  // ველში აკრეფილი სიგრძით კედლის დასრულება (მიმართულება — კურსორისკენ/snap-ით)
+  function commitLen() {
+    const L = parseFloat(lenInput)
+    if (!draft || !(L > 0)) return
+    let dx = 1, dy = 0
+    if (mouse) {
+      const s = resolveWallPt(mouse, shiftKey, draft)
+      const ddx = s.x - draft.x, ddy = s.y - draft.y
+      const dd = Math.hypot(ddx, ddy)
+      if (dd > 0.001) { dx = ddx / dd; dy = ddy / dd }
+    }
+    const ex = draft.x + dx * L, ey = draft.y + dy * L
+    addWall(draft.x, draft.y, ex, ey)
+    setDraft({ x: ex, y: ey }) // ჯაჭვი გრძელდება
+  }
+
   function onMove(e: React.MouseEvent<HTMLCanvasElement>) {
     const { cx, cy } = pos(e)
     setMouse(toM(cx, cy))
     if (e.shiftKey !== shiftKey) setShiftKey(e.shiftKey)
+    // ცოცხალი სიგრძე ველში (თუ ველი არ არის ფოკუსში)
+    if (draft && tool === 'wall' && !lenFocus.current) {
+      const s = resolveWallPt(toM(cx, cy), e.shiftKey, draft)
+      setLenInput(Math.hypot(s.x - draft.x, s.y - draft.y).toFixed(2))
+    }
     if (panning) { setPan({ x: panning.ox + cx - panning.sx, y: panning.oy + cy - panning.sy }); return }
     if (furnDrag) {
       const mm = toM(cx, cy)
@@ -214,6 +238,9 @@ export default function PlanEditor2D() {
   }
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      // ველში აკრეფისას shortcut-ები არ ერევა (Backspace/R/Ctrl+Z ა.შ.)
+      const el = e.target as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return
       if (e.key === 'Escape') { setDraft(null); return }
       // ავეჯის კლავიშები (R — მოტრიალება 15°, Del — წაშლა)
       const rs = useRoomStore.getState()
@@ -394,6 +421,54 @@ export default function PlanEditor2D() {
           })}
         </div>
       )}
+      {/* კედლის სიგრძის ციფრული ველი — ჩანს ხაზვისას */}
+      {tool === 'wall' && draft && (
+        <div className="absolute left-1/2 top-14 z-20 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-gray-200 bg-white/95 px-3 py-1.5 shadow-lg backdrop-blur">
+          <span className="text-xs text-gray-500">სიგრძე</span>
+          <input
+            value={lenInput}
+            inputMode="decimal"
+            onFocus={() => { lenFocus.current = true }}
+            onBlur={() => { lenFocus.current = false }}
+            onChange={(e) => setLenInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitLen(); (e.target as HTMLInputElement).blur() }
+            }}
+            className="w-16 rounded-md border border-gray-300 px-2 py-0.5 text-right text-sm focus:border-brand focus:outline-none"
+          />
+          <span className="text-xs text-gray-400">მ · Enter</span>
+        </div>
+      )}
+
+      {/* ავეჯის ზუსტი ზომა/კუთხე — ჩანს მონიშვნისას */}
+      {tool === 'furniture' && selFurn && (
+        <div className="absolute bottom-9 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur">
+          <span className="text-xs font-semibold text-gray-700">{selFurn.label}</span>
+          <label className="flex items-center gap-1 text-xs text-gray-500">
+            სიგანე
+            <input type="number" min={0.2} step={0.1} value={selFurn.width}
+              onChange={(e) => updateFurniture(selFurn.id, { width: Math.max(0.2, parseFloat(e.target.value) || 0.2) })}
+              className="w-14 rounded-md border border-gray-300 px-1.5 py-0.5 text-right text-sm focus:border-brand focus:outline-none" />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-gray-500">
+            სიღრმე
+            <input type="number" min={0.2} step={0.1} value={selFurn.depth}
+              onChange={(e) => updateFurniture(selFurn.id, { depth: Math.max(0.2, parseFloat(e.target.value) || 0.2) })}
+              className="w-14 rounded-md border border-gray-300 px-1.5 py-0.5 text-right text-sm focus:border-brand focus:outline-none" />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-gray-500">
+            კუთხე°
+            <input type="number" step={5} value={Math.round((((selFurn.rotation % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) * 180 / Math.PI)}
+              onChange={(e) => updateFurniture(selFurn.id, { rotation: (parseFloat(e.target.value) || 0) * Math.PI / 180 })}
+              className="w-14 rounded-md border border-gray-300 px-1.5 py-0.5 text-right text-sm focus:border-brand focus:outline-none" />
+          </label>
+          <button onClick={() => removeFurniture(selFurn.id)}
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-500 hover:bg-red-50">
+            <Trash2 size={13} /> წაშლა
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center gap-2 border-b border-gray-200 bg-white px-4 py-2">
         <span className="mr-3 text-sm font-semibold text-gray-700">Wall-graph რედაქტორი (beta)</span>
         {tools.map(t => (
