@@ -45,6 +45,8 @@ export default function PlanEditor2D() {
   const [furnDrag, setFurnDrag] = useState<{ id: string; dx: number; dy: number } | null>(null)
   const [lenInput, setLenInput] = useState('') // კედლის სიგრძის ციფრული ველი
   const lenFocus = useRef(false)
+  const [hoverWall, setHoverWall] = useState<string | null>(null) // erase tool-ის hover (კედელი)
+  const [hoverFurn, setHoverFurn] = useState<string | null>(null) // erase tool-ის hover (ავეჯი)
   const selFurn = furniture.find(f => f.id === selectedFurnitureId)
 
   const wx = (m: number) => m * SCALE * zoom + pan.x
@@ -94,7 +96,8 @@ export default function PlanEditor2D() {
   }
   function hitWall(cx: number, cy: number): string | null {
     const m = toM(cx, cy)
-    let best: string | null = null, bd = 0.18
+    // მოხვედრის ზღვარი პიქსელებში (zoom-დამოუკიდებელი, ადვილი დასაჭერი)
+    let best: string | null = null, bd = 14 / (SCALE * zoom)
     for (const w of walls) {
       const a = nodes.find(n => n.id === w.a), b = nodes.find(n => n.id === w.b)
       if (!a || !b) continue
@@ -191,6 +194,8 @@ export default function PlanEditor2D() {
         addOpening(wid, t, tool)
       }
     } else if (tool === 'erase') {
+      const fid = hitFurniture(cx, cy)
+      if (fid) { removeFurniture(fid); return } // ავეჯს პრიორიტეტი
       const wid = hitWall(cx, cy); if (wid) removeWall(wid)
     }
   }
@@ -218,6 +223,16 @@ export default function PlanEditor2D() {
     if (draft && tool === 'wall' && !lenFocus.current) {
       const s = resolveWallPt(toM(cx, cy), e.shiftKey, draft)
       setLenInput(Math.hypot(s.x - draft.x, s.y - draft.y).toFixed(2))
+    }
+    // erase tool: hover-ზე გამოკვეთა (ავეჯს პრიორიტეტი კედელზე)
+    if (tool === 'erase') {
+      const hf = hitFurniture(cx, cy)
+      const h = hf ? null : hitWall(cx, cy)
+      if (h !== hoverWall) setHoverWall(h)
+      if (hf !== hoverFurn) setHoverFurn(hf)
+    } else {
+      if (hoverWall) setHoverWall(null)
+      if (hoverFurn) setHoverFurn(null)
     }
     if (panning) { setPan({ x: panning.ox + cx - panning.sx, y: panning.oy + cy - panning.sy }); return }
     if (furnDrag) {
@@ -308,8 +323,9 @@ export default function PlanEditor2D() {
     // walls
     for (const w of walls) {
       const a = nodes.find(n => n.id === w.a), b = nodes.find(n => n.id === w.b); if (!a || !b) continue
-      ctx.strokeStyle = '#2B2B2B'; ctx.lineCap = 'butt'
-      ctx.lineWidth = Math.max(3, w.thickness * SCALE * zoom)
+      const del = tool === 'erase' && w.id === hoverWall
+      ctx.strokeStyle = del ? '#DC2626' : '#2B2B2B'; ctx.lineCap = 'butt'
+      ctx.lineWidth = Math.max(3, w.thickness * SCALE * zoom) + (del ? 3 : 0)
       ctx.beginPath(); ctx.moveTo(wx(a.x), wy(a.y)); ctx.lineTo(wx(b.x), wy(b.y)); ctx.stroke()
     }
     // wall length labels (მიდლში, კედლის გვერდზე გადაწეული)
@@ -347,16 +363,17 @@ export default function PlanEditor2D() {
     // furniture footprints
     for (const f of furniture) {
       const sel = f.id === selectedFurnitureId
+      const del = tool === 'erase' && f.id === hoverFurn
       const W = f.width * SCALE * zoom, D = f.depth * SCALE * zoom
       ctx.save()
       ctx.translate(wx(f.x), wy(f.z))
       ctx.rotate(-f.rotation)
-      ctx.globalAlpha = sel ? 0.5 : 0.42
-      ctx.fillStyle = f.color
+      ctx.globalAlpha = del ? 0.35 : sel ? 0.5 : 0.42
+      ctx.fillStyle = del ? '#DC2626' : f.color
       ctx.fillRect(-W / 2, -D / 2, W, D)
       ctx.globalAlpha = 1
-      ctx.strokeStyle = sel ? '#2D6A4F' : '#6b5440'
-      ctx.lineWidth = sel ? 2.5 : 1
+      ctx.strokeStyle = del ? '#DC2626' : sel ? '#2D6A4F' : '#6b5440'
+      ctx.lineWidth = del ? 2.5 : sel ? 2.5 : 1
       ctx.strokeRect(-W / 2, -D / 2, W, D)
       // წინა კიდის მარკერი (+depth მხარე)
       ctx.strokeStyle = sel ? '#2D6A4F' : '#9a7b52'; ctx.lineWidth = sel ? 3 : 2
@@ -390,7 +407,7 @@ export default function PlanEditor2D() {
         ctx.fillStyle = '#fff'; ctx.fillText(label, mx2, my2 - 11)
       }
     }
-  }, [nodes, walls, openings, pan, zoom, draft, mouse, tool, size, shiftKey, furniture, selectedFurnitureId])
+  }, [nodes, walls, openings, pan, zoom, draft, mouse, tool, size, shiftKey, furniture, selectedFurnitureId, hoverWall, hoverFurn])
 
   useEffect(() => { draw() }, [draw])
 
@@ -500,7 +517,9 @@ export default function PlanEditor2D() {
       <div className="border-t border-gray-100 bg-white px-4 py-1.5 text-xs text-gray-400">
         {tool === 'furniture'
           ? 'ავეჯი: აირჩიე ტიპი → კლიკი გეგმაზე · გადათრევა — გადატანა (კედელს ეკვრება) · R — მოტრიალება · Del — წაშლა'
-          : 'კედლის ხატვა: კლიკი → კლიკი → … (ჯაჭვი) · Shift — 45° · მარჯვ. კლიკი / Esc — დასრულება · შუა ღილაკი — pan · scroll — zoom'}
+          : tool === 'erase'
+            ? 'წაშლა: დააკლიკე კედელს ან ავეჯს (წითლად გამოკვეთილს) → წაიშლება · Ctrl+Z — კედლის დაბრუნება'
+            : 'კედლის ხატვა: კლიკი → კლიკი → … (ჯაჭვი) · Shift — 45° · მარჯვ. კლიკი / Esc — დასრულება · შუა ღილაკი — pan · scroll — zoom'}
       </div>
     </div>
   )
