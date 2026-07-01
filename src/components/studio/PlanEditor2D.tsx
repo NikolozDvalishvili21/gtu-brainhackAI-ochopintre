@@ -37,6 +37,7 @@ export default function PlanEditor2D() {
   const [mouse, setMouse] = useState<{ x: number; y: number } | null>(null) // meters
   const [drag, setDrag] = useState<{ nodeId: string } | null>(null)
   const [panning, setPanning] = useState<{ sx: number; sy: number; ox: number; oy: number } | null>(null)
+  const [shiftKey, setShiftKey] = useState(false) // Shift → 45° კუთხის ფიქსაცია
 
   const wx = (m: number) => m * SCALE * zoom + pan.x
   const wy = (m: number) => m * SCALE * zoom + pan.y
@@ -53,6 +54,31 @@ export default function PlanEditor2D() {
     let best: PlanNode | null = null, bd = SNAP_PX
     for (const n of nodes) { const d = Math.hypot(wx(n.x) - mx, wy(n.y) - my); if (d < bd) { bd = d; best = n } }
     return best ? { x: best.x, y: best.y } : { x: snapG(m.x), y: snapG(m.y) }
+  }
+  // კედლის მე-2 წერტილი: node-ზე მიკვრა → კუთხე/სიგრძის snap → grid
+  function resolveWallPt(m: { x: number; y: number }, shift: boolean, d: { x: number; y: number } | null): { x: number; y: number } {
+    // 1) არსებულ node-ზე მიკვრა (დაკავშირება)
+    const mx = wx(m.x), my = wy(m.y)
+    let best: PlanNode | null = null, bd = SNAP_PX
+    for (const n of nodes) { const dd = Math.hypot(wx(n.x) - mx, wy(n.y) - my); if (dd < bd) { bd = dd; best = n } }
+    if (best) return { x: best.x, y: best.y }
+    // 2) კუთხე + სიგრძის snap (მხოლოდ draft-ის დროს)
+    if (d) {
+      let ang = Math.atan2(m.y - d.y, m.x - d.x)
+      let len = Math.hypot(m.x - d.x, m.y - d.y)
+      const deg = ((ang * 180) / Math.PI + 360) % 360
+      const adiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180)
+      if (shift) {
+        ang = (Math.round(deg / 45) * 45 * Math.PI) / 180 // Shift → 45° ფიქსაცია
+      } else {
+        const n90 = Math.round(deg / 90) * 90
+        if (adiff(deg, n90) < 5) ang = (n90 * Math.PI) / 180 // ჰორიზ./ვერტ. მაგნიტი (±5°)
+      }
+      len = Math.max(0.1, Math.round(len / 0.1) * 0.1) // 0.1მ ბიჯი
+      return { x: d.x + Math.cos(ang) * len, y: d.y + Math.sin(ang) * len }
+    }
+    // 3) grid
+    return { x: snapG(m.x), y: snapG(m.y) }
   }
   function hitNode(cx: number, cy: number): PlanNode | null {
     for (const n of nodes) if (Math.hypot(wx(n.x) - cx, wy(n.y) - cy) < 10) return n
@@ -80,7 +106,8 @@ export default function PlanEditor2D() {
       if (n) { pushHistory(); setDrag({ nodeId: n.id }); return }
       setPanning({ sx: cx, sy: cy, ox: pan.x, oy: pan.y }); return
     }
-    const m = snapPt(toM(cx, cy))
+    const raw = toM(cx, cy)
+    const m = tool === 'wall' ? resolveWallPt(raw, e.shiftKey, draft) : snapPt(raw)
     if (tool === 'wall') {
       if (!draft) setDraft(m)
       else {
@@ -104,6 +131,7 @@ export default function PlanEditor2D() {
   function onMove(e: React.MouseEvent<HTMLCanvasElement>) {
     const { cx, cy } = pos(e)
     setMouse(toM(cx, cy))
+    if (e.shiftKey !== shiftKey) setShiftKey(e.shiftKey)
     if (panning) { setPan({ x: panning.ox + cx - panning.sx, y: panning.oy + cy - panning.sy }); return }
     if (drag) { const m = snapPt(toM(cx, cy)); moveNode(drag.nodeId, m.x, m.y) }
   }
@@ -172,6 +200,20 @@ export default function PlanEditor2D() {
       ctx.lineWidth = Math.max(3, w.thickness * SCALE * zoom)
       ctx.beginPath(); ctx.moveTo(wx(a.x), wy(a.y)); ctx.lineTo(wx(b.x), wy(b.y)); ctx.stroke()
     }
+    // wall length labels (მიდლში, კედლის გვერდზე გადაწეული)
+    for (const w of walls) {
+      const a = nodes.find(n => n.id === w.a), b = nodes.find(n => n.id === w.b); if (!a || !b) continue
+      const len = Math.hypot(b.x - a.x, b.y - a.y); if (len < 0.15) continue
+      const ax = wx(a.x), ay = wy(a.y), bx = wx(b.x), by = wy(b.y)
+      const dxw = bx - ax, dyw = by - ay, L = Math.hypot(dxw, dyw) || 1
+      const ox = (-dyw / L) * 13, oy = (dxw / L) * 13 // პერპენდიკულარული გადაწევა
+      const mx2 = (ax + bx) / 2 + ox, my2 = (ay + by) / 2 + oy
+      const label = `${len.toFixed(2)} მ`
+      ctx.font = '600 10px Inter, sans-serif'; ctx.textAlign = 'center'
+      const tw = ctx.measureText(label).width
+      ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.fillRect(mx2 - tw / 2 - 4, my2 - 8, tw + 8, 15)
+      ctx.fillStyle = '#4B5563'; ctx.fillText(label, mx2, my2 + 3)
+    }
     // node joints (fill corners)
     for (const n of nodes) { ctx.fillStyle = '#2B2B2B'; ctx.beginPath(); ctx.arc(wx(n.x), wy(n.y), Math.max(2, 0.06 * SCALE * zoom), 0, Math.PI * 2); ctx.fill() }
 
@@ -190,14 +232,25 @@ export default function PlanEditor2D() {
       ctx.restore()
     }
 
-    // draft wall preview
+    // draft wall preview + ცოცხალი ზომა (სიგრძე + კუთხე)
     if (draft && mouse && tool === 'wall') {
-      const s = snapPt(mouse)
+      const s = resolveWallPt(mouse, shiftKey, draft)
       ctx.strokeStyle = '#9CA3AF'; ctx.setLineDash([5, 4]); ctx.lineWidth = 2
       ctx.beginPath(); ctx.moveTo(wx(draft.x), wy(draft.y)); ctx.lineTo(wx(s.x), wy(s.y)); ctx.stroke(); ctx.setLineDash([])
       ctx.fillStyle = '#2D6A4F'; ctx.beginPath(); ctx.arc(wx(draft.x), wy(draft.y), 4, 0, Math.PI * 2); ctx.fill()
+      // label: სიგრძე მ + კუთხე ° (0°=მარჯვ., 90°=ზემოთ)
+      const len = Math.hypot(s.x - draft.x, s.y - draft.y)
+      if (len > 0.001) {
+        const deg = ((Math.atan2(-(s.y - draft.y), s.x - draft.x) * 180) / Math.PI + 360) % 360
+        const label = `${len.toFixed(2)} მ · ${deg.toFixed(0)}°`
+        const mx2 = (wx(draft.x) + wx(s.x)) / 2, my2 = (wy(draft.y) + wy(s.y)) / 2
+        ctx.font = '600 12px Inter, sans-serif'; ctx.textAlign = 'center'
+        const tw = ctx.measureText(label).width
+        ctx.fillStyle = 'rgba(45,106,79,0.95)'; ctx.fillRect(mx2 - tw / 2 - 6, my2 - 24, tw + 12, 18)
+        ctx.fillStyle = '#fff'; ctx.fillText(label, mx2, my2 - 11)
+      }
     }
-  }, [nodes, walls, openings, pan, zoom, draft, mouse, tool, size])
+  }, [nodes, walls, openings, pan, zoom, draft, mouse, tool, size, shiftKey])
 
   useEffect(() => { draw() }, [draw])
 
@@ -240,7 +293,7 @@ export default function PlanEditor2D() {
           className="block cursor-crosshair" />
       </div>
       <div className="border-t border-gray-100 bg-white px-4 py-1.5 text-xs text-gray-400">
-        კედლის ხატვა: კლიკი → კლიკი → … (ჯაჭვი) · მარჯვ. კლიკი / Esc — დასრულება · შუა ღილაკი — pan · scroll — zoom
+        კედლის ხატვა: კლიკი → კლიკი → … (ჯაჭვი) · Shift — 45° · მარჯვ. კლიკი / Esc — დასრულება · შუა ღილაკი — pan · scroll — zoom
       </div>
     </div>
   )
