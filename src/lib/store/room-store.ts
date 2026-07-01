@@ -213,6 +213,32 @@ interface EditorStore {
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
+// ── მასალების/ავეჯის autosave (გეგმის გეომეტრიის გვერდით) ──
+const MKEY = "mat:v1";
+type MatSnap = {
+  wallMaterials: Record<string, WallMaterialAssignment>;
+  floorMaterials: Record<string, MaterialRef>;
+  furniture: Furniture[];
+};
+function loadMat(): MatSnap {
+  if (typeof window === "undefined") return { wallMaterials: {}, floorMaterials: {}, furniture: [] };
+  try {
+    const raw = localStorage.getItem(MKEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      return {
+        wallMaterials: d.wallMaterials ?? {},
+        floorMaterials: d.floorMaterials ?? {},
+        furniture: d.furniture ?? [],
+      };
+    }
+  } catch {
+    /* ignore */
+  }
+  return { wallMaterials: {}, floorMaterials: {}, furniture: [] };
+}
+const _mat = loadMat();
+
 export const useRoomStore = create<EditorStore>((set) => ({
   viewMode: "2d",
   activeTool: "select",
@@ -230,7 +256,7 @@ export const useRoomStore = create<EditorStore>((set) => ({
   partitions: [],
   doors: [],
   windows: [],
-  furniture: [],
+  furniture: _mat.furniture,
   materials: {
     wallTexture: "plain",
     wallColor: "#F5F0EB",
@@ -245,11 +271,11 @@ export const useRoomStore = create<EditorStore>((set) => ({
   selectedWallKey: null,
   selectedFurnitureId: null,
   transformMode: "translate",
-  wallMaterials: {},
+  wallMaterials: _mat.wallMaterials,
   wallKeys: [],
 
   selectedFloorRoomId: null,
-  floorMaterials: {},
+  floorMaterials: _mat.floorMaterials,
 
   firstPerson: false,
 
@@ -511,3 +537,25 @@ export const useRoomStore = create<EditorStore>((set) => ({
       return next;
     }),
 }));
+
+// ── autosave (debounced) — მასალები + ავეჯი ──
+if (typeof window !== "undefined") {
+  let t: ReturnType<typeof setTimeout>;
+  useRoomStore.subscribe((s) => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          MKEY,
+          JSON.stringify({
+            wallMaterials: s.wallMaterials,
+            floorMaterials: s.floorMaterials,
+            furniture: s.furniture,
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
+    }, 400);
+  });
+}

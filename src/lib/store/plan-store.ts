@@ -13,12 +13,40 @@ const uid = (p = "") => p + Math.random().toString(36).slice(2, 9);
 
 export type Selected = { type: "wall" | "room"; id: string } | null;
 
+// ── undo/redo + autosave ──
+type Snap = { nodes: PlanNode[]; walls: Wall[]; openings: Opening[] };
+const SKEY = "plan:v1";
+const HIST = 60; // history-ის მაქს. სიღრმე
+
+function loadInitial(): Snap {
+  if (typeof window === "undefined") return { nodes: [], walls: [], openings: [] };
+  try {
+    const raw = localStorage.getItem(SKEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      return { nodes: d.nodes ?? [], walls: d.walls ?? [], openings: d.openings ?? [] };
+    }
+  } catch {
+    /* ignore */
+  }
+  return { nodes: [], walls: [], openings: [] };
+}
+
 interface PlanState {
   nodes: PlanNode[];
   walls: Wall[];
   openings: Opening[];
   defaultThickness: number;
   defaultHeight: number;
+
+  // ── history ──
+  past: Snap[];
+  future: Snap[];
+  pushHistory: () => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
 
   // ── materials / selection ──
   selected: Selected;
@@ -46,11 +74,44 @@ interface PlanState {
 }
 
 export const usePlanStore = create<PlanState>((set, get) => ({
-  nodes: [],
-  walls: [],
-  openings: [],
+  ...loadInitial(),
   defaultThickness: 0.12,
   defaultHeight: 2.8,
+
+  past: [],
+  future: [],
+  // მიმდინარე გეომეტრიის snapshot-ს past-ში, future ცარიელდება (ახალი ქმედება)
+  pushHistory: () =>
+    set((s) => ({
+      past: [...s.past, { nodes: s.nodes, walls: s.walls, openings: s.openings }].slice(-HIST),
+      future: [],
+    })),
+  undo: () =>
+    set((s) => {
+      if (!s.past.length) return {};
+      const prev = s.past[s.past.length - 1];
+      return {
+        past: s.past.slice(0, -1),
+        future: [...s.future, { nodes: s.nodes, walls: s.walls, openings: s.openings }].slice(-HIST),
+        nodes: prev.nodes,
+        walls: prev.walls,
+        openings: prev.openings,
+      };
+    }),
+  redo: () =>
+    set((s) => {
+      if (!s.future.length) return {};
+      const next = s.future[s.future.length - 1];
+      return {
+        future: s.future.slice(0, -1),
+        past: [...s.past, { nodes: s.nodes, walls: s.walls, openings: s.openings }].slice(-HIST),
+        nodes: next.nodes,
+        walls: next.walls,
+        openings: next.openings,
+      };
+    }),
+  canUndo: () => get().past.length > 0,
+  canRedo: () => get().future.length > 0,
 
   selected: null,
   wallColors: {},
@@ -61,7 +122,8 @@ export const usePlanStore = create<PlanState>((set, get) => ({
   paintFloor: (roomId, color) =>
     set((s) => ({ floorColors: { ...s.floorColors, [roomId]: color } })),
 
-  addWall: (x1, y1, x2, y2) =>
+  addWall: (x1, y1, x2, y2) => {
+    get().pushHistory();
     set((s) => {
       const nodes = [...s.nodes];
       let walls = [...s.walls];
@@ -113,14 +175,16 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         height: s.defaultHeight,
       });
       return { nodes, walls };
-    }),
+    });
+  },
 
   moveNode: (id, x, y) =>
     set((s) => ({
       nodes: s.nodes.map((n) => (n.id === id ? { ...n, x, y } : n)),
     })),
 
-  removeWall: (id) =>
+  removeWall: (id) => {
+    get().pushHistory();
     set((s) => {
       const walls = s.walls.filter((w) => w.id !== id);
       const openings = s.openings.filter((o) => o.wallId !== id);
@@ -132,9 +196,11 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       }
       const nodes = s.nodes.filter((n) => usedNodes.has(n.id));
       return { walls, openings, nodes };
-    }),
+    });
+  },
 
-  addOpening: (wallId, t, type, width) =>
+  addOpening: (wallId, t, type, width) => {
+    get().pushHistory();
     set((s) => {
       if (!s.walls.some((w) => w.id === wallId)) return {};
       const opening: Opening = {
@@ -145,12 +211,36 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         type,
       };
       return { openings: [...s.openings, opening] };
-    }),
+    });
+  },
 
-  removeOpening: (id) =>
-    set((s) => ({ openings: s.openings.filter((o) => o.id !== id) })),
+  removeOpening: (id) => {
+    get().pushHistory();
+    set((s) => ({ openings: s.openings.filter((o) => o.id !== id) }));
+  },
 
-  clearPlan: () => set({ nodes: [], walls: [], openings: [] }),
+  clearPlan: () => {
+    get().pushHistory();
+    set({ nodes: [], walls: [], openings: [] });
+  },
 
   rooms: () => detectRooms(get().nodes, get().walls),
 }));
+
+// ── autosave (debounced) ──
+if (typeof window !== "undefined") {
+  let t: ReturnType<typeof setTimeout>;
+  usePlanStore.subscribe((s) => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          SKEY,
+          JSON.stringify({ nodes: s.nodes, walls: s.walls, openings: s.openings }),
+        );
+      } catch {
+        /* ignore */
+      }
+    }, 400);
+  });
+}

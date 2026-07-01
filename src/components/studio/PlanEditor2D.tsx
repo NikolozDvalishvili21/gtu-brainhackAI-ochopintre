@@ -3,7 +3,7 @@ import { useRef, useEffect, useState, useCallback } from 'react'
 import { usePlanStore } from '@/lib/store/plan-store'
 import { detectRooms, projectOnWall } from '@/lib/plan/graph'
 import type { PlanNode } from '@/lib/plan/types'
-import { Pencil, MousePointer2, DoorOpen, RectangleHorizontal, Eraser, Trash2 } from 'lucide-react'
+import { Pencil, MousePointer2, DoorOpen, RectangleHorizontal, Eraser, Trash2, Undo2, Redo2 } from 'lucide-react'
 
 const SCALE = 70
 const GRID = 0.5
@@ -25,7 +25,9 @@ export default function PlanEditor2D() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const woodRef = useRef<CanvasPattern | null>(null)
-  const { nodes, walls, openings, addWall, moveNode, removeWall, addOpening } = usePlanStore()
+  const { nodes, walls, openings, addWall, moveNode, removeWall, addOpening, pushHistory, undo, redo, past, future } = usePlanStore()
+  const canUndo = past.length > 0
+  const canRedo = future.length > 0
   const [size, setSize] = useState({ w: 1000, h: 700 })
 
   const [tool, setTool] = useState<Tool>('wall')
@@ -71,9 +73,11 @@ export default function PlanEditor2D() {
   // ── interactions ──
   function onDown(e: React.MouseEvent<HTMLCanvasElement>) {
     const { cx, cy } = pos(e)
+    // მარჯვენა კლიკი კედლის ხატვისას → ჯაჭვის დასრულება (pan-ის ნაცვლად)
+    if (e.button === 2 && tool === 'wall' && draft) { setDraft(null); return }
     if (e.button === 1 || e.button === 2 || tool === 'select') {
       const n = tool === 'select' ? hitNode(cx, cy) : null
-      if (n) { setDrag({ nodeId: n.id }); return }
+      if (n) { pushHistory(); setDrag({ nodeId: n.id }); return }
       setPanning({ sx: cx, sy: cy, ox: pan.x, oy: pan.y }); return
     }
     const m = snapPt(toM(cx, cy))
@@ -81,8 +85,8 @@ export default function PlanEditor2D() {
       if (!draft) setDraft(m)
       else {
         addWall(draft.x, draft.y, m.x, m.y)
-        // არსებულ node-ზე დასრულება ამთავრებს ჯაჭვს (loop-ის ჩაკეტვა / დაკავშირება),
-        // მერე თავისუფლად იწყებ ახალ კედელს სხვაგან
+        // ჯაჭვი გრძელდება ბოლო წერტილიდან. დასრულება: Esc ან მარჯვ. კლიკი.
+        // არსებულ node-ზე დახურვა (loop) ავტომატურად ამთავრებს ჯაჭვს.
         const onNode = nodes.some((n) => Math.hypot(n.x - m.x, n.y - m.y) < 0.01)
         setDraft(onNode ? null : m)
       }
@@ -109,9 +113,19 @@ export default function PlanEditor2D() {
     setZoom(z => Math.max(0.3, Math.min(3, z * f)))
   }
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setDraft(null) }
-    window.addEventListener('keydown', esc); return () => window.removeEventListener('keydown', esc)
-  }, [])
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setDraft(null); return }
+      const meta = e.ctrlKey || e.metaKey
+      // e.code = ფიზიკური კლავიში → მუშაობს ქართულ განლაგებაზეც (e.key layout-ს ეყრდნობა)
+      if (meta && e.code === 'KeyZ') {
+        e.preventDefault()
+        if (e.shiftKey) redo(); else undo()
+      } else if (meta && e.code === 'KeyY') {
+        e.preventDefault(); redo()
+      }
+    }
+    window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key)
+  }, [undo, redo])
 
   // canvas fullscreen — კონტეინერის ზომაზე მორგება
   useEffect(() => {
@@ -205,9 +219,19 @@ export default function PlanEditor2D() {
             {t.icon}{t.label}
           </button>
         ))}
-        <button onClick={() => usePlanStore.getState().clearPlan()} className="ml-auto flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-red-500 hover:bg-red-50">
-          <Trash2 size={15} /> გასუფთავება
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          <button onClick={undo} disabled={!canUndo} title="დაბრუნება (Ctrl+Z)"
+            className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium ${canUndo ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-300 cursor-not-allowed'}`}>
+            <Undo2 size={15} />
+          </button>
+          <button onClick={redo} disabled={!canRedo} title="გამეორება (Ctrl+Y)"
+            className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium ${canRedo ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-300 cursor-not-allowed'}`}>
+            <Redo2 size={15} />
+          </button>
+          <button onClick={() => usePlanStore.getState().clearPlan()} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-red-500 hover:bg-red-50">
+            <Trash2 size={15} /> გასუფთავება
+          </button>
+        </div>
       </div>
       <div ref={wrapRef} className="flex-1 overflow-hidden">
         <canvas ref={canvasRef} width={size.w} height={size.h}
@@ -216,7 +240,7 @@ export default function PlanEditor2D() {
           className="block cursor-crosshair" />
       </div>
       <div className="border-t border-gray-100 bg-white px-4 py-1.5 text-xs text-gray-400">
-        კედლის ხატვა: კლიკი → კლიკი (ჯაჭვი) · Esc — შეწყვეტა · შუა/მარჯვ. ღილაკი — pan · scroll — zoom
+        კედლის ხატვა: კლიკი → კლიკი → … (ჯაჭვი) · მარჯვ. კლიკი / Esc — დასრულება · შუა ღილაკი — pan · scroll — zoom
       </div>
     </div>
   )
