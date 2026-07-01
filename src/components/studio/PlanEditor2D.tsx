@@ -5,7 +5,7 @@ import { useRoomStore } from '@/lib/store/room-store'
 import { FURNITURE_CATALOG, VALID_FURNITURE_TYPES } from '@/lib/constants/furniture-catalog'
 import { detectRooms, projectOnWall } from '@/lib/plan/graph'
 import type { PlanNode } from '@/lib/plan/types'
-import { Pencil, MousePointer2, DoorOpen, RectangleHorizontal, Eraser, Trash2, Undo2, Redo2, Sofa } from 'lucide-react'
+import { Pencil, MousePointer2, DoorOpen, RectangleHorizontal, Eraser, Trash2, Undo2, Redo2, Sofa, Download } from 'lucide-react'
 
 const SCALE = 70
 const GRID = 0.5
@@ -247,6 +247,13 @@ export default function PlanEditor2D() {
     if (drag) { const m = snapPt(toM(cx, cy)); moveNode(drag.nodeId, m.x, m.y) }
   }
   function onUp() { setPanning(null); setDrag(null); setFurnDrag(null) }
+  function exportPlanPNG() {
+    const cv = canvasRef.current; if (!cv) return
+    const a = document.createElement('a')
+    a.href = cv.toDataURL('image/png')
+    a.download = `plan-${Date.now()}.png`
+    a.click()
+  }
   function onWheel(e: React.WheelEvent) {
     const f = e.deltaY < 0 ? 1.1 : 0.9
     setZoom(z => Math.max(0.3, Math.min(3, z * f)))
@@ -502,6 +509,9 @@ export default function PlanEditor2D() {
           <button onClick={redo} disabled={!canRedo} title="გამეორება (Ctrl+Y)"
             className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium ${canRedo ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-300 cursor-not-allowed'}`}>
             <Redo2 size={15} />
+          </button>
+          <button onClick={exportPlanPNG} title="გეგმა → PNG" className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100">
+            <Download size={15} /> PNG
           </button>
           <button onClick={() => usePlanStore.getState().clearPlan()} className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs text-red-500 hover:bg-red-50">
             <Trash2 size={15} /> გასუფთავება

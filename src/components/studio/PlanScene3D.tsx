@@ -393,6 +393,25 @@ function FurnitureItem({ item }: { item: Furniture }) {
   )
 }
 
+// ჭერი — ოთახის პოლიგონი კედლის სიმაღლეზე
+function RoomCeiling({ ids, nodes, height }: { ids: string[]; nodes: PlanNode[]; height: number }) {
+  const geo = useMemo(() => {
+    const shape = new THREE.Shape()
+    ids.forEach((id, i) => {
+      const n = nodes.find((nn) => nn.id === id)
+      if (!n) return
+      if (i === 0) shape.moveTo(n.x, n.y)
+      else shape.lineTo(n.x, n.y)
+    })
+    return new THREE.ShapeGeometry(shape)
+  }, [ids, nodes])
+  return (
+    <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, height, 0]} geometry={geo} receiveShadow>
+      <meshStandardMaterial color="#F2EEE8" roughness={0.95} side={THREE.DoubleSide} />
+    </mesh>
+  )
+}
+
 // ─── First-person walk ────────────────────────────────────────────────────────
 const EYE_H = 1.6
 function FirstPersonMovement({ bbox }: { bbox: { cx: number; cz: number; span: number } }) {
@@ -446,6 +465,18 @@ export default function PlanScene3D() {
   }, [walls, setWallKeys])
   const [firstPerson, setFirstPerson] = useState(false)
   const [locked, setLocked] = useState(false)
+  const [dayNight, setDayNight] = useState<'day' | 'night'>('day')
+  const [showCeiling, setShowCeiling] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const ceilingH = useMemo(() => (walls.length ? Math.max(...walls.map((w) => w.height)) : 2.8), [walls])
+  function exportPNG() {
+    const canvas = wrapRef.current?.querySelector('canvas') as HTMLCanvasElement | null
+    if (!canvas) return
+    const a = document.createElement('a')
+    a.href = canvas.toDataURL('image/png')
+    a.download = `interior-${Date.now()}.png`
+    a.click()
+  }
   useEffect(() => {
     const onChange = () => setLocked(!!document.pointerLockElement)
     document.addEventListener('pointerlockchange', onChange)
@@ -482,7 +513,7 @@ export default function PlanScene3D() {
   ]
 
   return (
-    <div className="relative w-full h-full">
+    <div ref={wrapRef} className="relative w-full h-full">
       {selectedFurnitureId && selFurn && !firstPerson && (
         <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 flex-col items-stretch gap-1.5 rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
           <div className="flex items-center gap-1">
@@ -528,8 +559,24 @@ export default function PlanScene3D() {
         gl={{ preserveDrawingBuffer: true }}
         onPointerMissed={() => { setSelectedWall(null); setSelectedFloor(null); setSelectedFurniture(null) }}
       >
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[bbox.cx + 6, 12, bbox.cz + 6]} intensity={1.1} castShadow shadow-mapSize={[2048, 2048]} />
+        <color attach="background" args={[dayNight === 'day' ? '#EAF0F4' : '#0E1524']} />
+        {dayNight === 'day' ? (
+          <>
+            <ambientLight intensity={0.5} />
+            <directionalLight position={[bbox.cx + 6, 12, bbox.cz + 6]} intensity={1.1} castShadow shadow-mapSize={[2048, 2048]} />
+          </>
+        ) : (
+          <>
+            <ambientLight intensity={0.13} color="#2a3a55" />
+            <directionalLight position={[bbox.cx + 6, 12, bbox.cz + 6]} intensity={0.25} color="#8fa8d0" castShadow shadow-mapSize={[2048, 2048]} />
+            {rooms.map((r) => (
+              <pointLight key={r.id} position={[r.centroid.x, ceilingH - 0.4, r.centroid.y]} intensity={10} distance={7} decay={2} color="#ffd7a0" />
+            ))}
+          </>
+        )}
+        {showCeiling && rooms.map((r) => (
+          <RoomCeiling key={r.id} ids={r.nodeIds} nodes={nodes} height={ceilingH} />
+        ))}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
           <planeGeometry args={[200, 200]} />
           <meshStandardMaterial color="#D6D0C8" roughness={1} />
@@ -571,7 +618,7 @@ export default function PlanScene3D() {
         ) : (
           <OrbitControls makeDefault target={[bbox.cx, 1, bbox.cz]} maxPolarAngle={Math.PI / 2.05} />
         )}
-        <Environment preset="apartment" />
+        <Environment preset={dayNight === 'day' ? 'apartment' : 'night'} />
       </Canvas>
 
       {/* ადამიანის ხედის ღილაკი */}
@@ -582,6 +629,30 @@ export default function PlanScene3D() {
         >
           👁 ადამიანის ხედი
         </button>
+      )}
+
+      {/* კონტროლ-პანელი: დღე/ღამე · ჭერი · PNG */}
+      {!firstPerson && (
+        <div className="absolute left-4 top-4 z-30 flex flex-col gap-1.5 rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
+          <button
+            onClick={() => setDayNight((d) => (d === 'day' ? 'night' : 'day'))}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
+          >
+            {dayNight === 'day' ? '☀️ დღე' : '🌙 ღამე'}
+          </button>
+          <button
+            onClick={() => setShowCeiling((c) => !c)}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium ${showCeiling ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+          >
+            {showCeiling ? '▣' : '▢'} ჭერი
+          </button>
+          <button
+            onClick={exportPNG}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
+          >
+            📷 PNG
+          </button>
+        </div>
       )}
 
       {/* walk mode overlay */}
