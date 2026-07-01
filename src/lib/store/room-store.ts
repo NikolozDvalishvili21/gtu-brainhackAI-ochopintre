@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { historyFocus } from "./history-focus";
 
 export type ViewMode = "2d" | "3d";
 export type Tool =
@@ -162,6 +163,14 @@ interface EditorStore {
   addFurniture: (item: Furniture) => void;
   removeFurniture: (id: string) => void;
   updateFurniture: (id: string, u: Partial<Furniture>) => void;
+  // ── ავეჯის history (unified Ctrl+Z) ──
+  furnPast: Furniture[][];
+  furnFuture: Furniture[][];
+  pushFurnHistory: () => void;
+  undoFurniture: () => void;
+  redoFurniture: () => void;
+  canUndoFurniture: () => boolean;
+  canRedoFurniture: () => boolean;
   setMaterials: (m: Partial<MaterialChoice>) => void;
   setRoomGenerated: (v: boolean) => void;
   setRoom: (r: { width: number; height: number }) => void;
@@ -213,7 +222,33 @@ interface EditorStore {
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
-export const useRoomStore = create<EditorStore>((set) => ({
+// ── მასალების/ავეჯის autosave (გეგმის გეომეტრიის გვერდით) ──
+const MKEY = "mat:v1";
+type MatSnap = {
+  wallMaterials: Record<string, WallMaterialAssignment>;
+  floorMaterials: Record<string, MaterialRef>;
+  furniture: Furniture[];
+};
+function loadMat(): MatSnap {
+  if (typeof window === "undefined") return { wallMaterials: {}, floorMaterials: {}, furniture: [] };
+  try {
+    const raw = localStorage.getItem(MKEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      return {
+        wallMaterials: d.wallMaterials ?? {},
+        floorMaterials: d.floorMaterials ?? {},
+        furniture: d.furniture ?? [],
+      };
+    }
+  } catch {
+    /* ignore */
+  }
+  return { wallMaterials: {}, floorMaterials: {}, furniture: [] };
+}
+const _mat = loadMat();
+
+export const useRoomStore = create<EditorStore>((set, get) => ({
   viewMode: "2d",
   activeTool: "select",
   rooms: [
@@ -230,7 +265,7 @@ export const useRoomStore = create<EditorStore>((set) => ({
   partitions: [],
   doors: [],
   windows: [],
-  furniture: [],
+  furniture: _mat.furniture,
   materials: {
     wallTexture: "plain",
     wallColor: "#F5F0EB",
@@ -245,11 +280,11 @@ export const useRoomStore = create<EditorStore>((set) => ({
   selectedWallKey: null,
   selectedFurnitureId: null,
   transformMode: "translate",
-  wallMaterials: {},
+  wallMaterials: _mat.wallMaterials,
   wallKeys: [],
 
   selectedFloorRoomId: null,
-  floorMaterials: {},
+  floorMaterials: _mat.floorMaterials,
 
   firstPerson: false,
 
@@ -289,9 +324,45 @@ export const useRoomStore = create<EditorStore>((set) => ({
 
   setSelected: (id, type) => set({ selectedId: id, selectedType: type }),
 
-  addFurniture: (item) => set((s) => ({ furniture: [...s.furniture, item] })),
-  removeFurniture: (id) =>
-    set((s) => ({ furniture: s.furniture.filter((f) => f.id !== id) })),
+  furnPast: [],
+  furnFuture: [],
+  pushFurnHistory: () => {
+    historyFocus.store = "furn";
+    set((s) => ({ furnPast: [...s.furnPast, s.furniture].slice(-60), furnFuture: [] }));
+  },
+  undoFurniture: () =>
+    set((s) => {
+      if (!s.furnPast.length) return {};
+      const prev = s.furnPast[s.furnPast.length - 1];
+      return {
+        furnPast: s.furnPast.slice(0, -1),
+        furnFuture: [...s.furnFuture, s.furniture].slice(-60),
+        furniture: prev,
+        selectedFurnitureId: null,
+      };
+    }),
+  redoFurniture: () =>
+    set((s) => {
+      if (!s.furnFuture.length) return {};
+      const next = s.furnFuture[s.furnFuture.length - 1];
+      return {
+        furnFuture: s.furnFuture.slice(0, -1),
+        furnPast: [...s.furnPast, s.furniture].slice(-60),
+        furniture: next,
+        selectedFurnitureId: null,
+      };
+    }),
+  canUndoFurniture: () => get().furnPast.length > 0,
+  canRedoFurniture: () => get().furnFuture.length > 0,
+
+  addFurniture: (item) => {
+    get().pushFurnHistory();
+    set((s) => ({ furniture: [...s.furniture, item] }));
+  },
+  removeFurniture: (id) => {
+    get().pushFurnHistory();
+    set((s) => ({ furniture: s.furniture.filter((f) => f.id !== id) }));
+  },
   updateFurniture: (id, u) =>
     set((s) => ({
       furniture: s.furniture.map((f) => (f.id === id ? { ...f, ...u } : f)),
@@ -511,3 +582,25 @@ export const useRoomStore = create<EditorStore>((set) => ({
       return next;
     }),
 }));
+
+// ── autosave (debounced) — მასალები + ავეჯი ──
+if (typeof window !== "undefined") {
+  let t: ReturnType<typeof setTimeout>;
+  useRoomStore.subscribe((s) => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      try {
+        localStorage.setItem(
+          MKEY,
+          JSON.stringify({
+            wallMaterials: s.wallMaterials,
+            floorMaterials: s.floorMaterials,
+            furniture: s.furniture,
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
+    }, 400);
+  });
+}

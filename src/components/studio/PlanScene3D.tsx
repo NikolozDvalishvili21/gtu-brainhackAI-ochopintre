@@ -1,8 +1,8 @@
 'use client'
 import { useMemo, useState, useEffect, useRef, Suspense } from 'react'
 import { Canvas, useThree, useFrame, type ThreeEvent } from '@react-three/fiber'
-import { OrbitControls, Environment, useGLTF, TransformControls, PointerLockControls } from '@react-three/drei'
-import { Move, RotateCw as RotateIcon, Maximize2, Trash2 } from 'lucide-react'
+import { OrbitControls, Environment, useGLTF, TransformControls, PointerLockControls, SoftShadows } from '@react-three/drei'
+import { Move, RotateCw as RotateIcon, Maximize2, Trash2, Copy } from 'lucide-react'
 import * as THREE from 'three'
 import { usePlanStore } from '@/lib/store/plan-store'
 import { useRoomStore } from '@/lib/store/room-store'
@@ -50,11 +50,14 @@ function useImageTexture(url?: string | null, repeat = 2, crop?: Crop): THREE.Te
       t.colorSpace = THREE.SRGBColorSpace
       t.wrapS = t.wrapT = THREE.RepeatWrapping
       t.repeat.set(repeat, repeat)
+      t.anisotropy = 8 // გრძელ კედელზე/კიდეებთან მუარე-ს ხსნის
       t.needsUpdate = true
       setTex(t)
     }
     img.onerror = () => { console.warn('[texture] ვერ ჩაიტვირთა:', url, '→', proxied(url)) }
-    img.src = proxied(url)
+    // ცალკე cache-key (&tex=1): Sidebar-ის thumbnail crossOrigin-გარეშე ქეშავს იმავე URL-ს,
+    // და crossOrigin-იანი ტექსტურა იმ „მოწამლულ" cache-hit-ს CORS-ით ვერ იყენებს → ცალკე entry
+    img.src = proxied(url) + '&tex=1'
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, crop?.x, crop?.y, crop?.w, crop?.h, crop?.rot])
@@ -115,7 +118,7 @@ function WallSegment({
   s: Solid; baseTexA: THREE.Texture | null; baseTexB: THREE.Texture | null
   assignA?: WallMaterialAssignment; assignB?: WallMaterialAssignment
   thickness: number; position: [number, number, number]; rotY: number
-  wallId: string; selKey: string | null; onSelect: (side: 'A' | 'B') => void
+  wallId: string; selKey: string | null; onSelect: (side: 'A' | 'B', x: number, y: number) => void
 }) {
   const tpmA = tilesPerMeter(assignA?.texRepeat ?? 2)
   const tpmB = tilesPerMeter(assignB?.texRepeat ?? 2)
@@ -133,7 +136,8 @@ function WallSegment({
       receiveShadow
       onClick={(e: ThreeEvent<MouseEvent>) => {
         e.stopPropagation()
-        onSelect(e.face && e.face.normal.z >= 0 ? 'A' : 'B')
+        const ne = e.nativeEvent as MouseEvent | undefined
+        onSelect(e.face && e.face.normal.z >= 0 ? 'A' : 'B', ne?.offsetX ?? 0, ne?.offsetY ?? 0)
       }}
     >
       <boxGeometry args={[s.len, s.h, thickness]} />
@@ -174,49 +178,51 @@ function OpeningVisual({ o, px, pz, rotY, thickness }: {
   const h = isDoor ? DOOR_H : WIN_H
   const yBase = isDoor ? 0 : WIN_SILL
   const yC = yBase + h / 2
-  const frameT = thickness + 0.05
+  const frameT = thickness + 0.06 // კედელზე ცოტა გამოშვერილი (კედლის სიბრტყეს არ ემთხვევა)
   const j = 0.06 // ჩარჩოს სისქე
   const FRAME = '#6b5440'
+  // polygonOffset — ჩარჩო/ფოთოლი ყოველთვის იგებს depth-ტესტს კედლის კოპლანარულ სიბრტყესთან (z-fight არ ხდება)
+  const noFight = { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }
   return (
     <group position={[px, 0, pz]} rotation={[0, rotY, 0]}>
-      {/* ჯამები (გვერდები) */}
-      <mesh position={[-(o.width / 2 + j / 2), yC, 0]} castShadow>
-        <boxGeometry args={[j, h, frameT]} />
-        <meshStandardMaterial color={FRAME} roughness={0.7} />
+      {/* ჯამები (გვერდები) — ოპენინგში ცოტა შემოშვერილი, რომ კედლის reveal-ს არ დაემთხვეს */}
+      <mesh position={[-(o.width / 2 + j / 2 - 0.01), yC, 0]}>
+        <boxGeometry args={[j, h + j, frameT]} />
+        <meshStandardMaterial color={FRAME} roughness={0.7} {...noFight} />
       </mesh>
-      <mesh position={[o.width / 2 + j / 2, yC, 0]} castShadow>
-        <boxGeometry args={[j, h, frameT]} />
-        <meshStandardMaterial color={FRAME} roughness={0.7} />
+      <mesh position={[o.width / 2 + j / 2 - 0.01, yC, 0]}>
+        <boxGeometry args={[j, h + j, frameT]} />
+        <meshStandardMaterial color={FRAME} roughness={0.7} {...noFight} />
       </mesh>
       {/* ლინტელი (თავი) */}
-      <mesh position={[0, yBase + h + j / 2, 0]} castShadow>
+      <mesh position={[0, yBase + h + j / 2, 0]}>
         <boxGeometry args={[o.width + j * 2, j, frameT]} />
-        <meshStandardMaterial color={FRAME} roughness={0.7} />
+        <meshStandardMaterial color={FRAME} roughness={0.7} {...noFight} />
       </mesh>
       {isDoor ? (
         <>
-          {/* კარის ფოთოლი */}
-          <mesh position={[0, yC, 0]} castShadow>
-            <boxGeometry args={[o.width - 0.02, h - 0.02, 0.04]} />
-            <meshStandardMaterial color="#9c7a52" roughness={0.55} />
+          {/* კარის ფოთოლი — ცოტა ჩაწეული (recessed), z=0-დან გადახრით */}
+          <mesh position={[0, yC, thickness / 2 - 0.03]}>
+            <boxGeometry args={[o.width - 0.04, h - 0.04, 0.04]} />
+            <meshStandardMaterial color="#9c7a52" roughness={0.55} {...noFight} />
           </mesh>
           {/* სახელური */}
-          <mesh position={[o.width / 2 - 0.12, yC, 0.04]}>
+          <mesh position={[o.width / 2 - 0.14, yC, thickness / 2 + 0.01]}>
             <sphereGeometry args={[0.035, 12, 12]} />
-            <meshStandardMaterial color="#d4af37" metalness={0.7} roughness={0.3} />
+            <meshStandardMaterial color="#d4af37" metalness={0.7} roughness={0.3} {...noFight} />
           </mesh>
         </>
       ) : (
         <>
           {/* შირისთავი (sill) */}
-          <mesh position={[0, WIN_SILL, 0]} castShadow>
+          <mesh position={[0, WIN_SILL, 0]}>
             <boxGeometry args={[o.width + j * 2, j, frameT]} />
-            <meshStandardMaterial color={FRAME} roughness={0.7} />
+            <meshStandardMaterial color={FRAME} roughness={0.7} {...noFight} />
           </mesh>
           {/* შუშა */}
           <mesh position={[0, yC, 0]}>
-            <boxGeometry args={[o.width - 0.02, h - 0.02, 0.02]} />
-            <meshStandardMaterial color="#bcd4e6" roughness={0.1} metalness={0.1} transparent opacity={0.35} />
+            <boxGeometry args={[o.width - 0.04, h - 0.04, 0.02]} />
+            <meshStandardMaterial color="#bcd4e6" roughness={0.1} metalness={0.1} transparent opacity={0.35} {...noFight} />
           </mesh>
         </>
       )}
@@ -227,7 +233,7 @@ function OpeningVisual({ o, px, pz, rotY, thickness }: {
 function WallMesh3D({ wall, a, b, ops, assignA, assignB, selKey, onSelect }: {
   wall: Wall; a: PlanNode; b: PlanNode; ops: Opening[]
   assignA?: WallMaterialAssignment; assignB?: WallMaterialAssignment
-  selKey: string | null; onSelect: (side: 'A' | 'B') => void
+  selKey: string | null; onSelect: (side: 'A' | 'B', x: number, y: number) => void
 }) {
   const dx = b.x - a.x
   const dz = b.y - a.y // plan-y → 3D z
@@ -348,7 +354,7 @@ function FurnitureModel({ item, url }: { item: Furniture; url: string }) {
 }
 
 // ავეჯის ერთეული — მონიშვნა + გადაადგილება/მოტრიალება/ზომა გიზმოთი
-function FurnitureItem({ item }: { item: Furniture }) {
+function FurnitureItem({ item, onPick }: { item: Furniture; onPick?: (x: number, y: number) => void }) {
   const { setSelectedFurniture, selectedFurnitureId, transformMode, updateFurniture } = useRoomStore()
   const isSelected = selectedFurnitureId === item.id
   const groupRef = useRef<THREE.Group>(null)
@@ -375,16 +381,41 @@ function FurnitureItem({ item }: { item: Furniture }) {
         position={[item.x, item.y, item.z]}
         rotation={[0, item.rotation, 0]}
         scale={item.scale ?? 1}
-        onClick={(e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); setSelectedFurniture(item.id) }}
+        onClick={(e: ThreeEvent<MouseEvent>) => { e.stopPropagation(); setSelectedFurniture(item.id); const ne = e.nativeEvent as MouseEvent | undefined; onPick?.(ne?.offsetX ?? 0, ne?.offsetY ?? 0) }}
       >
         <Suspense fallback={null}>
           <FurnitureModel item={item} url={url} />
         </Suspense>
       </group>
       {isSelected && ready && groupRef.current && (
-        <TransformControls object={groupRef.current} mode={transformMode} {...show} onObjectChange={commit} />
+        <TransformControls
+          object={groupRef.current}
+          mode={transformMode}
+          {...show}
+          onMouseDown={() => useRoomStore.getState().pushFurnHistory()}
+          onObjectChange={commit}
+        />
       )}
     </>
+  )
+}
+
+// ჭერი — ოთახის პოლიგონი კედლის სიმაღლეზე
+function RoomCeiling({ ids, nodes, height }: { ids: string[]; nodes: PlanNode[]; height: number }) {
+  const geo = useMemo(() => {
+    const shape = new THREE.Shape()
+    ids.forEach((id, i) => {
+      const n = nodes.find((nn) => nn.id === id)
+      if (!n) return
+      if (i === 0) shape.moveTo(n.x, n.y)
+      else shape.lineTo(n.x, n.y)
+    })
+    return new THREE.ShapeGeometry(shape)
+  }, [ids, nodes])
+  return (
+    <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, height, 0]} geometry={geo} receiveShadow>
+      <meshStandardMaterial color="#F2EEE8" roughness={0.95} side={THREE.DoubleSide} />
+    </mesh>
   )
 }
 
@@ -426,21 +457,39 @@ function FirstPersonMovement({ bbox }: { bbox: { cx: number; cz: number; span: n
 }
 
 export default function PlanScene3D() {
-  const { nodes, walls, openings } = usePlanStore()
+  const { nodes, walls, openings, setWallDims, removeWall } = usePlanStore()
   // მასალები/მონიშვნა — არსებული room-store-დან (არსებული Sidebar მართავს)
   const {
     selectedWallKey, wallMaterials, setSelectedWall,
     selectedFloorRoomId, floorMaterials, setSelectedFloor,
     furniture, selectedFurnitureId, setSelectedFurniture,
-    transformMode, setTransformMode, removeFurniture, updateFurniture,
+    transformMode, setTransformMode, removeFurniture, updateFurniture, addFurniture,
     setWallKeys,
   } = useRoomStore()
+  // 3D floating კონტექსტ-პანელის პოზიცია (ეკრანის პიქსელებში, canvas-თან)
+  const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null)
+  const selWallId = selectedWallKey ? selectedWallKey.split('#')[0] : null
+  const selWall3D = selWallId ? walls.find((w) => w.id === selWallId) : null
   // „ყველა კედელზე" — ორივე მხარის key-ები რეგისტრირდება
   useEffect(() => {
     setWallKeys(walls.flatMap((w) => [`${w.id}#A`, `${w.id}#B`]))
   }, [walls, setWallKeys])
   const [firstPerson, setFirstPerson] = useState(false)
   const [locked, setLocked] = useState(false)
+  const [dayNight, setDayNight] = useState<'day' | 'night'>('day')
+  const [showCeiling, setShowCeiling] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const ceilingH = useMemo(() => (walls.length ? Math.max(...walls.map((w) => w.height)) : 2.8), [walls])
+  // directional light-ის სამიზნე — ოთახის ცენტრი (თორემ shadow origin-ზეა და frustum ცდება)
+  const [lightTarget] = useState(() => new THREE.Object3D())
+  function exportPNG() {
+    const canvas = wrapRef.current?.querySelector('canvas') as HTMLCanvasElement | null
+    if (!canvas) return
+    const a = document.createElement('a')
+    a.href = canvas.toDataURL('image/png')
+    a.download = `interior-${Date.now()}.png`
+    a.click()
+  }
   useEffect(() => {
     const onChange = () => setLocked(!!document.pointerLockElement)
     document.addEventListener('pointerlockchange', onChange)
@@ -469,6 +518,11 @@ export default function PlanScene3D() {
     return { cx: (minx + maxx) / 2, cz: (minz + maxz) / 2, span: Math.max(maxx - minx, maxz - minz, 4) }
   }, [nodes])
   const d = bbox.span * 1.3 + 5
+  const shadowFr = bbox.span * 0.75 + 4 // shadow camera frustum — სცენაზე მორგებული
+  useEffect(() => {
+    lightTarget.position.set(bbox.cx, 0, bbox.cz)
+    lightTarget.updateMatrixWorld()
+  }, [lightTarget, bbox.cx, bbox.cz])
 
   const gizmoTools = [
     { m: 'translate' as const, icon: <Move size={15} />, label: 'გადატანა' },
@@ -477,9 +531,35 @@ export default function PlanScene3D() {
   ]
 
   return (
-    <div className="relative w-full h-full">
-      {selectedFurnitureId && selFurn && !firstPerson && (
-        <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 flex-col items-stretch gap-1.5 rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
+    <div ref={wrapRef} className="relative w-full h-full">
+      {/* კედლის floating პანელი — კლიკის ადგილას */}
+      {selWall3D && ctx && !firstPerson && (
+        <div style={{ left: ctx.x, top: ctx.y }} className="absolute z-30 flex -translate-x-1/2 translate-y-10 items-center gap-2 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur">
+          <span className="text-xs font-semibold text-gray-700">კედელი</span>
+          <label className="flex items-center gap-1 text-xs text-gray-500">
+            სისქე
+            <input type="number" min={4} step={1} value={Math.round(selWall3D.thickness * 100)}
+              onChange={(e) => setWallDims(selWall3D.id, { thickness: (parseFloat(e.target.value) || 4) / 100 })}
+              className="w-14 rounded-md border border-gray-300 px-1.5 py-0.5 text-right text-sm focus:border-brand focus:outline-none" />
+            სმ
+          </label>
+          <label className="flex items-center gap-1 text-xs text-gray-500">
+            სიმაღლე
+            <input type="number" min={1} step={0.1} value={selWall3D.height}
+              onChange={(e) => setWallDims(selWall3D.id, { height: Math.max(1, parseFloat(e.target.value) || 1) })}
+              className="w-16 rounded-md border border-gray-300 px-1.5 py-0.5 text-right text-sm focus:border-brand focus:outline-none" />
+            მ
+          </label>
+          <button onClick={() => { removeWall(selWall3D.id); setSelectedWall(null); setCtx(null) }}
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-red-500 hover:bg-red-50">
+            <Trash2 size={13} /> წაშლა
+          </button>
+          <button onClick={() => setCtx(null)} className="rounded-lg px-1.5 py-1 text-xs text-gray-400 hover:bg-gray-100">✕</button>
+        </div>
+      )}
+
+      {selectedFurnitureId && selFurn && ctx && !firstPerson && (
+        <div style={{ left: ctx.x, top: ctx.y }} className="absolute z-30 flex -translate-x-1/2 translate-y-10 flex-col items-stretch gap-1.5 rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
           <div className="flex items-center gap-1">
             {gizmoTools.map((b) => (
               <button
@@ -494,7 +574,17 @@ export default function PlanScene3D() {
             ))}
             <div className="mx-0.5 h-5 w-px bg-gray-200" />
             <button
-              onClick={() => removeFurniture(selectedFurnitureId)}
+              onClick={() => {
+                const id = 'f_' + Math.random().toString(36).slice(2, 9)
+                addFurniture({ ...selFurn, id, x: selFurn.x + 0.4, z: selFurn.z + 0.4 })
+                setSelectedFurniture(id)
+              }}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100"
+            >
+              <Copy size={15} /> დუბლ.
+            </button>
+            <button
+              onClick={() => { removeFurniture(selectedFurnitureId); setCtx(null) }}
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50"
             >
               <Trash2 size={15} /> წაშლა
@@ -520,11 +610,61 @@ export default function PlanScene3D() {
       <Canvas
         camera={{ position: [bbox.cx + d * 0.5, d * 0.7, bbox.cz + d * 0.8], fov: 48 }}
         shadows
-        gl={{ preserveDrawingBuffer: true }}
-        onPointerMissed={() => { setSelectedWall(null); setSelectedFloor(null); setSelectedFurniture(null) }}
+        dpr={[1, 2]}
+        gl={{ preserveDrawingBuffer: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: dayNight === 'day' ? 1.05 : 0.9 }}
+        onPointerMissed={() => { setSelectedWall(null); setSelectedFloor(null); setSelectedFurniture(null); setCtx(null) }}
       >
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[bbox.cx + 6, 12, bbox.cz + 6]} intensity={1.1} castShadow shadow-mapSize={[2048, 2048]} />
+        {/* რბილი (PCSS) ჩრდილები — რეალისტური მოსაზღვრე */}
+        <SoftShadows size={18} samples={12} focus={0.85} />
+        <color attach="background" args={[dayNight === 'day' ? '#EAF0F4' : '#0E1524']} />
+        <primitive object={lightTarget} />
+        {dayNight === 'day' ? (
+          <>
+            <ambientLight intensity={0.4} />
+            <hemisphereLight args={['#ffffff', '#c9beac', 0.5]} />
+            <directionalLight
+              position={[bbox.cx + 7, 16, bbox.cz + 5]}
+              target={lightTarget}
+              intensity={1.1}
+              castShadow
+              shadow-mapSize={[2048, 2048]}
+              shadow-bias={-0.0004}
+              shadow-normalBias={0.02}
+              shadow-camera-near={0.5}
+              shadow-camera-far={60}
+              shadow-camera-left={-shadowFr}
+              shadow-camera-right={shadowFr}
+              shadow-camera-top={shadowFr}
+              shadow-camera-bottom={-shadowFr}
+            />
+          </>
+        ) : (
+          <>
+            <ambientLight intensity={0.13} color="#2a3a55" />
+            <directionalLight
+              position={[bbox.cx + 7, 16, bbox.cz + 5]}
+              target={lightTarget}
+              intensity={0.25}
+              color="#8fa8d0"
+              castShadow
+              shadow-mapSize={[2048, 2048]}
+              shadow-bias={-0.0004}
+              shadow-normalBias={0.02}
+              shadow-camera-near={0.5}
+              shadow-camera-far={60}
+              shadow-camera-left={-shadowFr}
+              shadow-camera-right={shadowFr}
+              shadow-camera-top={shadowFr}
+              shadow-camera-bottom={-shadowFr}
+            />
+            {rooms.map((r) => (
+              <pointLight key={r.id} position={[r.centroid.x, ceilingH - 0.4, r.centroid.y]} intensity={10} distance={7} decay={2} color="#ffd7a0" />
+            ))}
+          </>
+        )}
+        {showCeiling && rooms.map((r) => (
+          <RoomCeiling key={r.id} ids={r.nodeIds} nodes={nodes} height={ceilingH} />
+        ))}
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
           <planeGeometry args={[200, 200]} />
           <meshStandardMaterial color="#D6D0C8" roughness={1} />
@@ -553,11 +693,11 @@ export default function PlanScene3D() {
               assignA={wallMaterials[`${w.id}#A`]}
               assignB={wallMaterials[`${w.id}#B`]}
               selKey={selectedWallKey}
-              onSelect={(side) => setSelectedWall(`${w.id}#${side}`)}
+              onSelect={(side, x, y) => { setSelectedWall(`${w.id}#${side}`); setCtx({ x, y }) }}
             />
           )
         })}
-        {furniture.map((f) => <FurnitureItem key={f.id} item={f} />)}
+        {furniture.map((f) => <FurnitureItem key={f.id} item={f} onPick={(x, y) => setCtx({ x, y })} />)}
         {firstPerson ? (
           <>
             <FirstPersonMovement bbox={bbox} />
@@ -566,7 +706,7 @@ export default function PlanScene3D() {
         ) : (
           <OrbitControls makeDefault target={[bbox.cx, 1, bbox.cz]} maxPolarAngle={Math.PI / 2.05} />
         )}
-        <Environment preset="apartment" />
+        <Environment preset={dayNight === 'day' ? 'apartment' : 'night'} />
       </Canvas>
 
       {/* ადამიანის ხედის ღილაკი */}
@@ -577,6 +717,30 @@ export default function PlanScene3D() {
         >
           👁 ადამიანის ხედი
         </button>
+      )}
+
+      {/* კონტროლ-პანელი: დღე/ღამე · ჭერი · PNG */}
+      {!firstPerson && (
+        <div className="absolute left-4 top-4 z-30 flex flex-col gap-1.5 rounded-xl border border-gray-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
+          <button
+            onClick={() => setDayNight((d) => (d === 'day' ? 'night' : 'day'))}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
+          >
+            {dayNight === 'day' ? '☀️ დღე' : '🌙 ღამე'}
+          </button>
+          <button
+            onClick={() => setShowCeiling((c) => !c)}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium ${showCeiling ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'}`}
+          >
+            {showCeiling ? '▣' : '▢'} ჭერი
+          </button>
+          <button
+            onClick={exportPNG}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100"
+          >
+            📷 PNG
+          </button>
+        </div>
       )}
 
       {/* walk mode overlay */}
