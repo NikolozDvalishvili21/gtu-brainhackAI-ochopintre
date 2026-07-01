@@ -50,11 +50,14 @@ function useImageTexture(url?: string | null, repeat = 2, crop?: Crop): THREE.Te
       t.colorSpace = THREE.SRGBColorSpace
       t.wrapS = t.wrapT = THREE.RepeatWrapping
       t.repeat.set(repeat, repeat)
+      t.anisotropy = 8 // გრძელ კედელზე/კიდეებთან მუარე-ს ხსნის
       t.needsUpdate = true
       setTex(t)
     }
     img.onerror = () => { console.warn('[texture] ვერ ჩაიტვირთა:', url, '→', proxied(url)) }
-    img.src = proxied(url)
+    // ცალკე cache-key (&tex=1): Sidebar-ის thumbnail crossOrigin-გარეშე ქეშავს იმავე URL-ს,
+    // და crossOrigin-იანი ტექსტურა იმ „მოწამლულ" cache-hit-ს CORS-ით ვერ იყენებს → ცალკე entry
+    img.src = proxied(url) + '&tex=1'
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, crop?.x, crop?.y, crop?.w, crop?.h, crop?.rot])
@@ -174,49 +177,51 @@ function OpeningVisual({ o, px, pz, rotY, thickness }: {
   const h = isDoor ? DOOR_H : WIN_H
   const yBase = isDoor ? 0 : WIN_SILL
   const yC = yBase + h / 2
-  const frameT = thickness + 0.05
+  const frameT = thickness + 0.06 // კედელზე ცოტა გამოშვერილი (კედლის სიბრტყეს არ ემთხვევა)
   const j = 0.06 // ჩარჩოს სისქე
   const FRAME = '#6b5440'
+  // polygonOffset — ჩარჩო/ფოთოლი ყოველთვის იგებს depth-ტესტს კედლის კოპლანარულ სიბრტყესთან (z-fight არ ხდება)
+  const noFight = { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }
   return (
     <group position={[px, 0, pz]} rotation={[0, rotY, 0]}>
-      {/* ჯამები (გვერდები) */}
-      <mesh position={[-(o.width / 2 + j / 2), yC, 0]} castShadow>
-        <boxGeometry args={[j, h, frameT]} />
-        <meshStandardMaterial color={FRAME} roughness={0.7} />
+      {/* ჯამები (გვერდები) — ოპენინგში ცოტა შემოშვერილი, რომ კედლის reveal-ს არ დაემთხვეს */}
+      <mesh position={[-(o.width / 2 + j / 2 - 0.01), yC, 0]}>
+        <boxGeometry args={[j, h + j, frameT]} />
+        <meshStandardMaterial color={FRAME} roughness={0.7} {...noFight} />
       </mesh>
-      <mesh position={[o.width / 2 + j / 2, yC, 0]} castShadow>
-        <boxGeometry args={[j, h, frameT]} />
-        <meshStandardMaterial color={FRAME} roughness={0.7} />
+      <mesh position={[o.width / 2 + j / 2 - 0.01, yC, 0]}>
+        <boxGeometry args={[j, h + j, frameT]} />
+        <meshStandardMaterial color={FRAME} roughness={0.7} {...noFight} />
       </mesh>
       {/* ლინტელი (თავი) */}
-      <mesh position={[0, yBase + h + j / 2, 0]} castShadow>
+      <mesh position={[0, yBase + h + j / 2, 0]}>
         <boxGeometry args={[o.width + j * 2, j, frameT]} />
-        <meshStandardMaterial color={FRAME} roughness={0.7} />
+        <meshStandardMaterial color={FRAME} roughness={0.7} {...noFight} />
       </mesh>
       {isDoor ? (
         <>
-          {/* კარის ფოთოლი */}
-          <mesh position={[0, yC, 0]} castShadow>
-            <boxGeometry args={[o.width - 0.02, h - 0.02, 0.04]} />
-            <meshStandardMaterial color="#9c7a52" roughness={0.55} />
+          {/* კარის ფოთოლი — ცოტა ჩაწეული (recessed), z=0-დან გადახრით */}
+          <mesh position={[0, yC, thickness / 2 - 0.03]}>
+            <boxGeometry args={[o.width - 0.04, h - 0.04, 0.04]} />
+            <meshStandardMaterial color="#9c7a52" roughness={0.55} {...noFight} />
           </mesh>
           {/* სახელური */}
-          <mesh position={[o.width / 2 - 0.12, yC, 0.04]}>
+          <mesh position={[o.width / 2 - 0.14, yC, thickness / 2 + 0.01]}>
             <sphereGeometry args={[0.035, 12, 12]} />
-            <meshStandardMaterial color="#d4af37" metalness={0.7} roughness={0.3} />
+            <meshStandardMaterial color="#d4af37" metalness={0.7} roughness={0.3} {...noFight} />
           </mesh>
         </>
       ) : (
         <>
           {/* შირისთავი (sill) */}
-          <mesh position={[0, WIN_SILL, 0]} castShadow>
+          <mesh position={[0, WIN_SILL, 0]}>
             <boxGeometry args={[o.width + j * 2, j, frameT]} />
-            <meshStandardMaterial color={FRAME} roughness={0.7} />
+            <meshStandardMaterial color={FRAME} roughness={0.7} {...noFight} />
           </mesh>
           {/* შუშა */}
           <mesh position={[0, yC, 0]}>
-            <boxGeometry args={[o.width - 0.02, h - 0.02, 0.02]} />
-            <meshStandardMaterial color="#bcd4e6" roughness={0.1} metalness={0.1} transparent opacity={0.35} />
+            <boxGeometry args={[o.width - 0.04, h - 0.04, 0.02]} />
+            <meshStandardMaterial color="#bcd4e6" roughness={0.1} metalness={0.1} transparent opacity={0.35} {...noFight} />
           </mesh>
         </>
       )}

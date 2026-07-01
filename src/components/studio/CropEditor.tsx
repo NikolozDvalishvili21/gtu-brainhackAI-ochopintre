@@ -101,17 +101,22 @@ export default function CropEditor({
           </div>
         </div>
 
+        {/* თავისუფალი მოტრიალება — ნებისმიერი კუთხე */}
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2">
+          <RotateCw size={14} className="shrink-0 text-gray-400" />
+          <input
+            type="range" min={0} max={360} step={1} value={rot}
+            onChange={(e) => setRot(parseInt(e.target.value, 10))}
+            className="w-full accent-brand cursor-pointer"
+          />
+          <span className="w-9 shrink-0 text-right text-xs tabular-nums text-gray-500">{rot}°</span>
+        </div>
+
         <div className="mt-3 flex items-center justify-between gap-2">
-          <div className="flex gap-2">
-            <button onClick={() => setRect({ x: 0, y: 0, w: 1, h: 1 })}
-              className="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50">
-              <Maximize size={13} /> სრული
-            </button>
-            <button onClick={() => setRot((r) => (r + 90) % 360)}
-              className="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50">
-              <RotateCw size={13} /> {rot}°
-            </button>
-          </div>
+          <button onClick={() => { setRect({ x: 0, y: 0, w: 1, h: 1 }); setRot(0) }}
+            className="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50">
+            <Maximize size={13} /> ჩამოყრა
+          </button>
           <button onClick={() => { onApply({ ...rect, rot }); onClose() }}
             className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-2 text-xs font-medium text-white hover:bg-brand-dark">
             <Check size={14} /> გამოყენება
