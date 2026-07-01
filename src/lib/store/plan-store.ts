@@ -60,6 +60,7 @@ interface PlanState {
   addWall: (x1: number, y1: number, x2: number, y2: number) => void;
   moveNode: (id: string, x: number, y: number) => void;
   removeWall: (id: string) => void;
+  setWallDims: (id: string, dims: { thickness?: number; height?: number }) => void;
   addOpening: (
     wallId: string,
     t: number,
@@ -212,6 +213,21 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       };
       return { openings: [...s.openings, opening] };
     });
+  },
+
+  setWallDims: (id, dims) => {
+    get().pushHistory();
+    set((s) => ({
+      walls: s.walls.map((w) =>
+        w.id === id
+          ? {
+              ...w,
+              thickness: dims.thickness != null ? Math.max(0.04, dims.thickness) : w.thickness,
+              height: dims.height != null ? Math.max(1, dims.height) : w.height,
+            }
+          : w,
+      ),
+    }));
   },
 
   removeOpening: (id) => {
