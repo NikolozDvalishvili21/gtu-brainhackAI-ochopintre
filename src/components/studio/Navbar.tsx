@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRoomStore, type RoomShape } from "@/lib/store/room-store";
 import Logo from "@/components/shared/Logo";
 import RenderButton from "@/components/studio/RenderButton";
+import ProjectsMenu from "@/components/studio/ProjectsMenu";
 import { Box, PenLine, Download, Upload, Layers, Loader2 } from "lucide-react";
 
 const ROOM_COLORS = [
@@ -67,8 +68,10 @@ export default function Navbar() {
   }
 
   return (
-    <header className="z-10 flex h-14 items-center gap-4 border-b border-gray-100 bg-white px-4 shadow-sm">
-      <Logo href="/" className="mr-4 transition-opacity hover:opacity-80" />
+    <header className="relative z-40 flex h-14 items-center gap-4 border-b border-gray-100 bg-white px-4 shadow-sm">
+      <Logo href="/" className="mr-2 transition-opacity hover:opacity-80" />
+
+      <ProjectsMenu />
 
       <div className="flex items-center gap-1 rounded-xl bg-gray-100 p-1">
         <button
