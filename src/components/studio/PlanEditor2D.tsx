@@ -5,9 +5,10 @@ import { useRoomStore } from '@/lib/store/room-store'
 import { historyFocus } from '@/lib/store/history-focus'
 import { FURNITURE_CATALOG, VALID_FURNITURE_TYPES } from '@/lib/constants/furniture-catalog'
 import { ROOM_TYPES, ROOM_TYPE_LIST } from '@/lib/constants/room-types'
+import { autoFurnishRoom } from '@/lib/auto-furnish'
 import { detectRooms, projectOnWall } from '@/lib/plan/graph'
 import type { PlanNode } from '@/lib/plan/types'
-import { Pencil, MousePointer2, DoorOpen, RectangleHorizontal, Eraser, Trash2, Undo2, Redo2, Sofa, Download, Ruler, Copy } from 'lucide-react'
+import { Pencil, MousePointer2, DoorOpen, RectangleHorizontal, Eraser, Trash2, Undo2, Redo2, Sofa, Download, Ruler, Copy, Wand2 } from 'lucide-react'
 
 const SCALE = 70
 const GRID = 0.5
@@ -40,7 +41,7 @@ export default function PlanEditor2D() {
   const wrapRef = useRef<HTMLDivElement>(null)
   const woodRef = useRef<CanvasPattern | null>(null)
   const { nodes, walls, openings, addWall, moveNode, removeWall, addOpening, setWallDims, removeOpening, pushHistory, past, future } = usePlanStore()
-  const { furniture, addFurniture, updateFurniture, removeFurniture, selectedFurnitureId, setSelectedFurniture, pushFurnHistory, furnPast, furnFuture, roomMeta, setRoomMeta } = useRoomStore()
+  const { furniture, addFurniture, updateFurniture, removeFurniture, selectedFurnitureId, setSelectedFurniture, pushFurnHistory, furnPast, furnFuture, roomMeta, setRoomMeta, applyAutoFurnish } = useRoomStore()
   const canUndo = past.length > 0 || furnPast.length > 0
   const canRedo = future.length > 0 || furnFuture.length > 0
   // unified undo/redo — plan (გეომეტრია) + furniture ერთ Ctrl+Z-ზე (focus-ის მიხედვით)
@@ -263,6 +264,19 @@ export default function PlanEditor2D() {
       const wid = hitWall(cx, cy); if (wid) removeWall(wid)
     }
   }
+  // AI გაწყობა — ოთახის ტიპის მიხედვით ავეჯის ავტო-განლაგება
+  function handleAutoFurnish() {
+    if (!selRoomObj) return
+    const meta = roomMeta[selRoomObj.id]
+    if (!meta?.type) return
+    const pts = selRoomObj.nodeIds.map(id => nodes.find(n => n.id === id)).filter(Boolean) as PlanNode[]
+    // ოთახის შიგნით არსებული ავეჯი იცვლება ახლით
+    const removeIds = furniture.filter(f => pointInPoly(f.x, f.z, pts)).map(f => f.id)
+    const remaining = furniture.filter(f => !removeIds.includes(f.id))
+    const items = autoFurnishRoom(selRoomObj, { nodes, walls, openings, existing: remaining, type: meta.type })
+    applyAutoFurnish(removeIds, items)
+  }
+
   // ველში აკრეფილი სიგრძით კედლის დასრულება (მიმართულება — კურსორისკენ/snap-ით)
   function commitLen() {
     const L = parseFloat(lenInput)
@@ -606,6 +620,14 @@ export default function PlanEditor2D() {
               onChange={(e) => setRoomMeta(selRoomObj.id, { name: e.target.value })}
               className="w-40 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-brand focus:outline-none"
             />
+            <button
+              onClick={handleAutoFurnish}
+              disabled={!roomMeta[selRoomObj.id]?.type}
+              title={roomMeta[selRoomObj.id]?.type ? 'AI ჩააწყობს ავეჯს ტიპის მიხედვით' : 'ჯერ ტიპი აირჩიე ქვემოთ'}
+              className="flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Wand2 size={13} /> AI გაწყობა
+            </button>
           </div>
           <div className="flex flex-wrap gap-1">
             {ROOM_TYPE_LIST.map((t) => {

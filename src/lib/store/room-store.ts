@@ -170,6 +170,8 @@ interface EditorStore {
   addFurniture: (item: Furniture) => void;
   removeFurniture: (id: string) => void;
   updateFurniture: (id: string, u: Partial<Furniture>) => void;
+  // AI გაწყობა: ოთახის ძველი ავეჯი იშლება, ახალი ერთიანად ემატება (1 undo-ნაბიჯი)
+  applyAutoFurnish: (removeIds: string[], items: Furniture[]) => void;
   // ── wall-graph ოთახის მეტა ──
   roomMeta: Record<string, PlanRoomMeta>;
   setRoomMeta: (roomId: string, m: Partial<PlanRoomMeta>) => void;
@@ -381,6 +383,13 @@ export const useRoomStore = create<EditorStore>((set, get) => ({
   removeFurniture: (id) => {
     get().pushFurnHistory();
     set((s) => ({ furniture: s.furniture.filter((f) => f.id !== id) }));
+  },
+  applyAutoFurnish: (removeIds, items) => {
+    get().pushFurnHistory();
+    set((s) => ({
+      furniture: [...s.furniture.filter((f) => !removeIds.includes(f.id)), ...items],
+      selectedFurnitureId: null,
+    }));
   },
   updateFurniture: (id, u) =>
     set((s) => ({
