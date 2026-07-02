@@ -55,6 +55,7 @@ function snapshot() {
       wallMaterials: r.wallMaterials,
       floorMaterials: r.floorMaterials,
       furniture: r.furniture,
+      roomMeta: r.roomMeta,
     },
   };
 }
@@ -74,6 +75,7 @@ function applySnapshot(d: Partial<Snapshot>) {
     wallMaterials: d.mat?.wallMaterials ?? {},
     floorMaterials: d.mat?.floorMaterials ?? {},
     furniture: d.mat?.furniture ?? [],
+    roomMeta: d.mat?.roomMeta ?? {},
     furnPast: [],
     furnFuture: [],
     selectedWallKey: null,

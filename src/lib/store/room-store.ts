@@ -1,5 +1,12 @@
 import { create } from "zustand";
 import { historyFocus } from "./history-focus";
+import type { RoomType } from "../constants/room-types";
+
+// wall-graph ოთახის მეტა — სახელი + ტიპი (roomId = detectRooms-ის სტაბილური id)
+export interface PlanRoomMeta {
+  name?: string;
+  type?: RoomType;
+}
 
 export type ViewMode = "2d" | "3d";
 export type Tool =
@@ -163,6 +170,10 @@ interface EditorStore {
   addFurniture: (item: Furniture) => void;
   removeFurniture: (id: string) => void;
   updateFurniture: (id: string, u: Partial<Furniture>) => void;
+  // ── wall-graph ოთახის მეტა ──
+  roomMeta: Record<string, PlanRoomMeta>;
+  setRoomMeta: (roomId: string, m: Partial<PlanRoomMeta>) => void;
+
   // ── ავეჯის history (unified Ctrl+Z) ──
   furnPast: Furniture[][];
   furnFuture: Furniture[][];
@@ -228,9 +239,10 @@ type MatSnap = {
   wallMaterials: Record<string, WallMaterialAssignment>;
   floorMaterials: Record<string, MaterialRef>;
   furniture: Furniture[];
+  roomMeta: Record<string, PlanRoomMeta>;
 };
 function loadMat(): MatSnap {
-  if (typeof window === "undefined") return { wallMaterials: {}, floorMaterials: {}, furniture: [] };
+  if (typeof window === "undefined") return { wallMaterials: {}, floorMaterials: {}, furniture: [], roomMeta: {} };
   try {
     const raw = localStorage.getItem(MKEY);
     if (raw) {
@@ -239,12 +251,13 @@ function loadMat(): MatSnap {
         wallMaterials: d.wallMaterials ?? {},
         floorMaterials: d.floorMaterials ?? {},
         furniture: d.furniture ?? [],
+        roomMeta: d.roomMeta ?? {},
       };
     }
   } catch {
     /* ignore */
   }
-  return { wallMaterials: {}, floorMaterials: {}, furniture: [] };
+  return { wallMaterials: {}, floorMaterials: {}, furniture: [], roomMeta: {} };
 }
 const _mat = loadMat();
 
@@ -323,6 +336,12 @@ export const useRoomStore = create<EditorStore>((set, get) => ({
     set((s) => ({ windows: s.windows.filter((w) => w.id !== id) })),
 
   setSelected: (id, type) => set({ selectedId: id, selectedType: type }),
+
+  roomMeta: _mat.roomMeta,
+  setRoomMeta: (roomId, m) =>
+    set((s) => ({
+      roomMeta: { ...s.roomMeta, [roomId]: { ...s.roomMeta[roomId], ...m } },
+    })),
 
   furnPast: [],
   furnFuture: [],
@@ -596,6 +615,7 @@ if (typeof window !== "undefined") {
             wallMaterials: s.wallMaterials,
             floorMaterials: s.floorMaterials,
             furniture: s.furniture,
+            roomMeta: s.roomMeta,
           }),
         );
       } catch {

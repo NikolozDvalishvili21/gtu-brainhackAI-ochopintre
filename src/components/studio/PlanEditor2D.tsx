@@ -4,6 +4,7 @@ import { usePlanStore } from '@/lib/store/plan-store'
 import { useRoomStore } from '@/lib/store/room-store'
 import { historyFocus } from '@/lib/store/history-focus'
 import { FURNITURE_CATALOG, VALID_FURNITURE_TYPES } from '@/lib/constants/furniture-catalog'
+import { ROOM_TYPES, ROOM_TYPE_LIST } from '@/lib/constants/room-types'
 import { detectRooms, projectOnWall } from '@/lib/plan/graph'
 import type { PlanNode } from '@/lib/plan/types'
 import { Pencil, MousePointer2, DoorOpen, RectangleHorizontal, Eraser, Trash2, Undo2, Redo2, Sofa, Download, Ruler, Copy } from 'lucide-react'
@@ -14,6 +15,16 @@ const SNAP_PX = 12 // node-ზე მიკვრის რადიუსი �
 const snapG = (v: number) => Math.round(v / GRID) * GRID
 
 type Tool = 'wall' | 'select' | 'door' | 'window' | 'erase' | 'furniture' | 'measure'
+
+// წერტილი პოლიგონშია? (ray casting)
+function pointInPoly(px: number, py: number, pts: { x: number; y: number }[]): boolean {
+  let inside = false
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}
 
 function woodPattern(ctx: CanvasRenderingContext2D): CanvasPattern | null {
   const t = document.createElement('canvas'); t.width = 64; t.height = 26
@@ -29,7 +40,7 @@ export default function PlanEditor2D() {
   const wrapRef = useRef<HTMLDivElement>(null)
   const woodRef = useRef<CanvasPattern | null>(null)
   const { nodes, walls, openings, addWall, moveNode, removeWall, addOpening, setWallDims, removeOpening, pushHistory, past, future } = usePlanStore()
-  const { furniture, addFurniture, updateFurniture, removeFurniture, selectedFurnitureId, setSelectedFurniture, pushFurnHistory, furnPast, furnFuture } = useRoomStore()
+  const { furniture, addFurniture, updateFurniture, removeFurniture, selectedFurnitureId, setSelectedFurniture, pushFurnHistory, furnPast, furnFuture, roomMeta, setRoomMeta } = useRoomStore()
   const canUndo = past.length > 0 || furnPast.length > 0
   const canRedo = future.length > 0 || furnFuture.length > 0
   // unified undo/redo — plan (გეომეტრია) + furniture ერთ Ctrl+Z-ზე (focus-ის მიხედვით)
@@ -63,8 +74,11 @@ export default function PlanEditor2D() {
   const [hoverWall, setHoverWall] = useState<string | null>(null) // erase tool-ის hover (კედელი)
   const [hoverFurn, setHoverFurn] = useState<string | null>(null) // erase tool-ის hover (ავეჯი)
   const [selWall, setSelWall] = useState<string | null>(null) // select tool: მონიშნული კედელი
+  const [selRoom, setSelRoom] = useState<string | null>(null) // select tool: მონიშნული ოთახი
   const [measure, setMeasure] = useState<{ a: { x: number; y: number }; b: { x: number; y: number } | null } | null>(null)
   const selWallObj = selWall ? walls.find(w => w.id === selWall) : null
+  const roomsList = detectRooms(nodes, walls)
+  const selRoomObj = selRoom ? roomsList.find(r => r.id === selRoom) : null
   const selFurn = furniture.find(f => f.id === selectedFurnitureId)
 
   const wx = (m: number) => m * SCALE * zoom + pan.x
@@ -177,13 +191,20 @@ export default function PlanEditor2D() {
     if (e.button === 2 && tool === 'wall' && draft) { setDraft(null); return }
     // შუა/მარჯვ. ღილაკი → pan
     if (e.button === 1 || e.button === 2) { setPanning({ sx: cx, sy: cy, ox: pan.x, oy: pan.y }); return }
-    // select tool: node-ის გადატანა → კედლის მონიშვნა → pan
+    // select tool: node-ის გადატანა → კედელი → ოთახი → pan
     if (tool === 'select') {
       const n = hitNode(cx, cy)
       if (n) { pushHistory(); setDrag({ nodeId: n.id }); return }
       const wid = hitWall(cx, cy)
-      setSelWall(wid)
-      if (!wid) setPanning({ sx: cx, sy: cy, ox: pan.x, oy: pan.y })
+      if (wid) { setSelWall(wid); setSelRoom(null); return }
+      setSelWall(null)
+      const m = toM(cx, cy)
+      const room = roomsList.find(r => {
+        const pts = r.nodeIds.map(id => nodes.find(nn => nn.id === id)).filter(Boolean) as PlanNode[]
+        return pointInPoly(m.x, m.y, pts)
+      })
+      setSelRoom(room?.id ?? null)
+      if (!room) setPanning({ sx: cx, sy: cy, ox: pan.x, oy: pan.y })
       return
     }
     // საზომი ლენტი: ორი კლიკი
@@ -378,10 +399,19 @@ export default function PlanEditor2D() {
       r.nodeIds.forEach((id, i) => { const n = nodes.find(nn => nn.id === id)!; const X = wx(n.x), Y = wy(n.y); i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y) })
       ctx.closePath()
       ctx.fillStyle = (woodRef.current as CanvasPattern | null) ?? '#EAD9BC'; ctx.fill()
-      // label + area
+      // მონიშნული ოთახის კონტური
+      if (tool === 'select' && r.id === selRoom) {
+        ctx.strokeStyle = '#2D6A4F'; ctx.lineWidth = 3; ctx.setLineDash([7, 4]); ctx.stroke(); ctx.setLineDash([])
+      }
+      // label: სახელი/ტიპი + ფართობი
+      const meta = roomMeta[r.id]
+      const typeInfo = meta?.type ? ROOM_TYPES[meta.type] : null
+      const title = `${typeInfo ? typeInfo.icon + ' ' : ''}${meta?.name || typeInfo?.label || 'ოთახი'}`
       const lx = wx(r.centroid.x), ly = wy(r.centroid.y)
-      ctx.fillStyle = 'rgba(255,255,255,0.82)'; ctx.fillRect(lx - 40, ly - 15, 80, 28)
-      ctx.fillStyle = '#374151'; ctx.font = '600 12px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('ოთახი', lx, ly - 1)
+      ctx.font = '600 12px Inter, sans-serif'; ctx.textAlign = 'center'
+      const tw2 = Math.max(80, ctx.measureText(title).width + 16)
+      ctx.fillStyle = 'rgba(255,255,255,0.82)'; ctx.fillRect(lx - tw2 / 2, ly - 15, tw2, 28)
+      ctx.fillStyle = '#374151'; ctx.fillText(title, lx, ly - 1)
       ctx.fillStyle = '#6B7280'; ctx.font = '10px Inter, sans-serif'; ctx.fillText(`${r.area.toFixed(1)} მ²`, lx, ly + 12)
     }
 
@@ -491,7 +521,7 @@ export default function PlanEditor2D() {
         ctx.fillStyle = '#fff'; ctx.fillText(label, mx2, my2 - 11)
       }
     }
-  }, [nodes, walls, openings, pan, zoom, draft, mouse, tool, size, shiftKey, furniture, selectedFurnitureId, hoverWall, hoverFurn, selWall, measure])
+  }, [nodes, walls, openings, pan, zoom, draft, mouse, tool, size, shiftKey, furniture, selectedFurnitureId, hoverWall, hoverFurn, selWall, measure, selRoom, roomMeta])
 
   useEffect(() => { draw() }, [draw])
 
@@ -565,6 +595,33 @@ export default function PlanEditor2D() {
         </div>
       )}
 
+      {/* ოთახის სახელი/ტიპი — ჩანს select tool-ში ოთახზე კლიკისას */}
+      {tool === 'select' && selRoomObj && (
+        <div className="absolute bottom-9 left-1/2 z-20 flex -translate-x-1/2 flex-col gap-2 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-gray-700">ოთახი · {selRoomObj.area.toFixed(1)} მ²</span>
+            <input
+              value={roomMeta[selRoomObj.id]?.name ?? ''}
+              placeholder={roomMeta[selRoomObj.id]?.type ? ROOM_TYPES[roomMeta[selRoomObj.id]!.type!].label : 'სახელი...'}
+              onChange={(e) => setRoomMeta(selRoomObj.id, { name: e.target.value })}
+              className="w-40 rounded-md border border-gray-300 px-2 py-1 text-sm focus:border-brand focus:outline-none"
+            />
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {ROOM_TYPE_LIST.map((t) => {
+              const active = roomMeta[selRoomObj.id]?.type === t.type
+              return (
+                <button key={t.type}
+                  onClick={() => setRoomMeta(selRoomObj.id, { type: t.type })}
+                  className={`flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium ${active ? 'bg-brand text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'}`}>
+                  {t.icon} {t.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ავეჯის ზუსტი ზომა/კუთხე — ჩანს მონიშვნისას */}
       {tool === 'furniture' && selFurn && (
         <div className="absolute bottom-9 left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-gray-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur">
@@ -606,7 +663,7 @@ export default function PlanEditor2D() {
       <div className="flex items-center gap-2 border-b border-gray-200 bg-white px-4 py-2">
         <span className="mr-3 text-sm font-semibold text-gray-700">Wall-graph რედაქტორი (beta)</span>
         {tools.map(t => (
-          <button key={t.id} onClick={() => { setTool(t.id); setDraft(null); setSelWall(null); setMeasure(null) }}
+          <button key={t.id} onClick={() => { setTool(t.id); setDraft(null); setSelWall(null); setSelRoom(null); setMeasure(null) }}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium ${tool === t.id ? 'bg-brand text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
             {t.icon}{t.label}
           </button>
@@ -640,7 +697,7 @@ export default function PlanEditor2D() {
           : tool === 'erase'
             ? 'წაშლა: დააკლიკე კედელს, კარს/ფანჯარას ან ავეჯს → წაიშლება · Ctrl+Z — დაბრუნება'
             : tool === 'select'
-              ? 'მონიშვნა: node — გადათრევა · კედელზე კლიკი — მონიშვნა (სისქე/სიმაღლე ქვემოთ) · Del — წაშლა'
+              ? 'მონიშვნა: node — გადათრევა · კედელი — სისქე/სიმაღლე · ოთახი — სახელი/ტიპი · Del — წაშლა'
               : tool === 'measure'
                 ? 'საზომი: კლიკი → კლიკი = მანძილი · ხელახლა კლიკი — ახალი გაზომვა · Esc — გასუფთავება'
                 : 'კედლის ხატვა: კლიკი → კლიკი → … (ჯაჭვი) · Shift — 45° · მარჯვ. კლიკი / Esc — დასრულება · შუა ღილაკი — pan · scroll — zoom'}
