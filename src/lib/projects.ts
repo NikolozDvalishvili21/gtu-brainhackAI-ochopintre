@@ -86,6 +86,23 @@ function writeProjectData(id: string, data: Snapshot) {
   localStorage.setItem(DATA_PREFIX + id, JSON.stringify(data));
 }
 
+// გარანტია, რომ მიმდინარე workspace ყოველთვის რეგისტრირებულია სიაში.
+// თუ აქტიური პროექტი არ არსებობს — იქმნება „უსახელო პროექტი" და slot-ში ინახება.
+export function ensureCurrentProject(): ProjectMeta {
+  const list = readList();
+  const id = currentProjectId();
+  let meta = id ? list.find((p) => p.id === id) : undefined;
+  if (!meta) {
+    meta = { id: uid(), name: "უსახელო პროექტი", updatedAt: Date.now() };
+    list.push(meta);
+    localStorage.setItem(CUR_KEY, meta.id);
+  }
+  meta.updatedAt = Date.now();
+  writeProjectData(meta.id, snapshot());
+  writeList(list);
+  return meta;
+}
+
 // მიმდინარე მდგომარეობის შენახვა აქტიურ პროექტში (თუ არსებობს)
 export function saveCurrent(): ProjectMeta | null {
   const id = currentProjectId();
@@ -129,17 +146,34 @@ export function openProject(id: string) {
   }
 }
 
-// ახალი ცარიელი პროექტი (მიმდინარე ინახება თუ სახელიანია)
-export function newProject() {
-  saveCurrent();
+// ახალი ცარიელი პროექტი — მაშინვე რეგისტრირდება სიაში (მიმდინარე ჯერ ინახება)
+export function newProject(): ProjectMeta {
+  ensureCurrentProject();
   applySnapshot({});
-  localStorage.removeItem(CUR_KEY);
+  const meta: ProjectMeta = { id: uid(), name: "ახალი პროექტი", updatedAt: Date.now() };
+  writeProjectData(meta.id, snapshot());
+  writeList([...readList(), meta]);
+  localStorage.setItem(CUR_KEY, meta.id);
+  return meta;
 }
 
 export function deleteProject(id: string) {
+  const wasCurrent = currentProjectId() === id;
   writeList(readList().filter((p) => p.id !== id));
   localStorage.removeItem(DATA_PREFIX + id);
-  if (currentProjectId() === id) localStorage.removeItem(CUR_KEY);
+  if (wasCurrent) {
+    localStorage.removeItem(CUR_KEY);
+    const rest = listProjects();
+    if (rest.length) {
+      // გადავდივართ ბოლო ცვლილების პროექტზე
+      const raw = localStorage.getItem(DATA_PREFIX + rest[0].id);
+      if (raw) {
+        try { applySnapshot(JSON.parse(raw)); localStorage.setItem(CUR_KEY, rest[0].id); } catch { /* ignore */ }
+      }
+    } else {
+      applySnapshot({}); // ბოლო პროექტი წაიშალა → ცარიელი workspace
+    }
+  }
 }
 
 // ─── JSON export / import (გაზიარება) ────────────────────────────────────────

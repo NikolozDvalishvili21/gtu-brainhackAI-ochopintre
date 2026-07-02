@@ -3,8 +3,8 @@
 // გადართვა / ახალი / შენახვა / გადარქმევა / წაშლა / JSON export-import.
 import { useEffect, useRef, useState } from 'react'
 import {
-  listProjects, currentProjectId, currentProjectName,
-  openProject, newProject, saveCurrent, saveAs, renameProject, deleteProject,
+  listProjects, currentProjectId, currentProjectName, ensureCurrentProject,
+  openProject, newProject, renameProject, deleteProject,
   exportJSON, importJSON, type ProjectMeta,
 } from '@/lib/projects'
 import { FolderOpen, Plus, Save, Pencil, Trash2, Download, Upload, ChevronDown, Check } from 'lucide-react'
@@ -24,10 +24,30 @@ export default function ProjectsMenu() {
   const [curId, setCurId] = useState<string | null>(null)
   const [curName, setCurName] = useState('უსახელო პროექტი')
   const [savedFlash, setSavedFlash] = useState(false)
+  // სახელის მოდალი: რომელ პროექტს არქმევს + საწყისი ტექსტი + შენახვის flash გვჭირდება თუ არა
+  const [nameModal, setNameModal] = useState<{ id: string; value: string; flash?: boolean } | null>(null)
+  const [confirmDel, setConfirmDel] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const nameInputRef = useRef<HTMLInputElement>(null)
 
+  // მოდალის გახსნისას input-ზე ფოკუსი + ტექსტის მონიშვნა
+  useEffect(() => {
+    if (nameModal) setTimeout(() => { nameInputRef.current?.focus(); nameInputRef.current?.select() }, 30)
+  }, [nameModal?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function applyName() {
+    if (!nameModal) return
+    const v = nameModal.value.trim()
+    if (v) renameProject(nameModal.id, v)
+    if (nameModal.flash) { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1500) }
+    setNameModal(null)
+    refresh()
+  }
+
+  // მიმდინარე workspace ყოველთვის რეგისტრირდება სიაში — სია ცარიელი არასდროსაა
   const refresh = () => {
+    ensureCurrentProject()
     setProjects(listProjects())
     setCurId(currentProjectId())
     setCurName(currentProjectName())
@@ -38,19 +58,17 @@ export default function ProjectsMenu() {
   useEffect(() => {
     if (!open) return
     const close = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) { setOpen(false); setConfirmDel(null) }
     }
     window.addEventListener('mousedown', close)
     return () => window.removeEventListener('mousedown', close)
   }, [open])
 
   function handleSave() {
-    if (currentProjectId()) {
-      saveCurrent()
-    } else {
-      const name = prompt('პროექტის სახელი:', 'ჩემი პროექტი')
-      if (name === null) return
-      saveAs(name)
+    const meta = ensureCurrentProject() // snapshot slot-ში ჩაიწერა
+    if (meta.name === 'უსახელო პროექტი') {
+      setNameModal({ id: meta.id, value: 'ჩემი პროექტი', flash: true })
+      return
     }
     refresh()
     setSavedFlash(true)
@@ -113,21 +131,56 @@ export default function ProjectsMenu() {
                   </span>
                   <span className="text-[10px] text-gray-400">{timeAgo(p.updatedAt)}</span>
                 </button>
-                <button onClick={() => {
-                  const name = prompt('ახალი სახელი:', p.name)
-                  if (name) { renameProject(p.id, name); refresh() }
-                }}
+                <button onClick={() => setNameModal({ id: p.id, value: p.name })}
+                  title="გადარქმევა"
                   className="hidden rounded p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600 group-hover:block">
                   <Pencil size={12} />
                 </button>
-                <button onClick={() => {
-                  if (confirm(`წავშალო „${p.name}"?`)) { deleteProject(p.id); refresh() }
-                }}
-                  className="hidden rounded p-1 text-gray-400 hover:bg-red-100 hover:text-red-500 group-hover:block">
-                  <Trash2 size={12} />
-                </button>
+                {confirmDel === p.id ? (
+                  <button onClick={() => { deleteProject(p.id); setConfirmDel(null); refresh() }}
+                    className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-red-600">
+                    დაადასტურე
+                  </button>
+                ) : (
+                  <button onClick={() => setConfirmDel(p.id)}
+                    title="წაშლა"
+                    className="hidden rounded p-1 text-gray-400 hover:bg-red-100 hover:text-red-500 group-hover:block">
+                    <Trash2 size={12} />
+                  </button>
+                )}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* სახელის მოდალი */}
+      {nameModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setNameModal(null) }}>
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+            <h3 className="mb-3 text-sm font-semibold text-gray-800">პროექტის სახელი</h3>
+            <input
+              ref={nameInputRef}
+              value={nameModal.value}
+              onChange={(e) => setNameModal({ ...nameModal, value: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); applyName() }
+                if (e.key === 'Escape') setNameModal(null)
+              }}
+              placeholder="მაგ.: ჩემი მისაღები"
+              className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setNameModal(null)}
+                className="rounded-lg px-4 py-2 text-xs font-medium text-gray-500 hover:bg-gray-100">
+                გაუქმება
+              </button>
+              <button onClick={applyName} disabled={!nameModal.value.trim()}
+                className="rounded-lg bg-brand px-4 py-2 text-xs font-medium text-white hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-40">
+                შენახვა
+              </button>
+            </div>
           </div>
         </div>
       )}
