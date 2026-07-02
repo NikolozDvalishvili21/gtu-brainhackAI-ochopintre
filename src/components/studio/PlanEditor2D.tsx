@@ -149,16 +149,17 @@ export default function PlanEditor2D() {
     }
     return null
   }
-  // ავეჯის hit-test (ლოკალურ სივრცეში, rotate-ის გათვალისწინებით). f.x→plan.x, f.z→plan.y
+  // ავეჯის hit-test (ლოკალურ სივრცეში, rotate + 3D gizmo-ს scale გათვალისწინებით)
   function hitFurniture(cx: number, cy: number): string | null {
     const m = toM(cx, cy)
     for (let i = furniture.length - 1; i >= 0; i--) {
       const f = furniture[i]
+      const k = f.scale ?? 1
       const px = m.x - f.x, py = m.y - f.z
       const r = f.rotation
       const lx = Math.cos(r) * px - Math.sin(r) * py
       const ly = Math.sin(r) * px + Math.cos(r) * py
-      if (Math.abs(lx) <= f.width / 2 && Math.abs(ly) <= f.depth / 2) return f.id
+      if (Math.abs(lx) <= (f.width * k) / 2 && Math.abs(ly) <= (f.depth * k) / 2) return f.id
     }
     return null
   }
@@ -318,7 +319,7 @@ export default function PlanEditor2D() {
       const f = furniture.find(ff => ff.id === furnDrag.id)
       if (f) {
         if (!furnMovedRef.current) { pushFurnHistory(); furnMovedRef.current = true }
-        const snapped = snapFurnitureToWall(mm.x + furnDrag.dx, mm.y + furnDrag.dy, f.depth, f.rotation)
+        const snapped = snapFurnitureToWall(mm.x + furnDrag.dx, mm.y + furnDrag.dy, f.depth * (f.scale ?? 1), f.rotation)
         updateFurniture(furnDrag.id, { x: snapped.x, z: snapped.z, rotation: snapped.rotation })
       }
       return
@@ -470,11 +471,12 @@ export default function PlanEditor2D() {
       ctx.restore()
     }
 
-    // furniture footprints
+    // furniture footprints (scale = 3D gizmo-ს ზომაც ითვლება)
     for (const f of furniture) {
       const sel = f.id === selectedFurnitureId
       const del = tool === 'erase' && f.id === hoverFurn
-      const W = f.width * SCALE * zoom, D = f.depth * SCALE * zoom
+      const k = f.scale ?? 1
+      const W = f.width * k * SCALE * zoom, D = f.depth * k * SCALE * zoom
       ctx.save()
       ctx.translate(wx(f.x), wy(f.z))
       ctx.rotate(-f.rotation)
@@ -650,14 +652,16 @@ export default function PlanEditor2D() {
           <span className="text-xs font-semibold text-gray-700">{selFurn.label}</span>
           <label className="flex items-center gap-1 text-xs text-gray-500">
             სიგანე
-            <input type="number" min={0.2} step={0.1} value={selFurn.width}
-              onChange={(e) => updateFurniture(selFurn.id, { width: Math.max(0.2, parseFloat(e.target.value) || 0.2) })}
+            <input type="number" min={0.2} step={0.1}
+              value={+(selFurn.width * (selFurn.scale ?? 1)).toFixed(2)}
+              onChange={(e) => updateFurniture(selFurn.id, { width: Math.max(0.2, parseFloat(e.target.value) || 0.2) / (selFurn.scale ?? 1) })}
               className="w-14 rounded-md border border-gray-300 px-1.5 py-0.5 text-right text-sm focus:border-brand focus:outline-none" />
           </label>
           <label className="flex items-center gap-1 text-xs text-gray-500">
             სიღრმე
-            <input type="number" min={0.2} step={0.1} value={selFurn.depth}
-              onChange={(e) => updateFurniture(selFurn.id, { depth: Math.max(0.2, parseFloat(e.target.value) || 0.2) })}
+            <input type="number" min={0.2} step={0.1}
+              value={+(selFurn.depth * (selFurn.scale ?? 1)).toFixed(2)}
+              onChange={(e) => updateFurniture(selFurn.id, { depth: Math.max(0.2, parseFloat(e.target.value) || 0.2) / (selFurn.scale ?? 1) })}
               className="w-14 rounded-md border border-gray-300 px-1.5 py-0.5 text-right text-sm focus:border-brand focus:outline-none" />
           </label>
           <label className="flex items-center gap-1 text-xs text-gray-500">

@@ -347,9 +347,15 @@ function FurnitureModel({ item, url }: { item: Furniture; url: string }) {
     const box = new THREE.Box3().setFromObject(model)
     const size = new THREE.Vector3(); const center = new THREE.Vector3()
     box.getSize(size); box.getCenter(center)
-    const s = size.x > 0 ? item.width / size.x : 1
-    return { scale: s, pos: [-center.x * s, -box.min.y * s, -center.z * s] as [number, number, number] }
-  }, [model, item.width])
+    // არაუნიფორმული მასშტაბი — width/depth/height სამივე აისახება 3D-ში
+    const sx = size.x > 0 ? item.width / size.x : 1
+    const sy = size.y > 0 ? item.height / size.y : 1
+    const sz = size.z > 0 ? item.depth / size.z : 1
+    return {
+      scale: [sx, sy, sz] as [number, number, number],
+      pos: [-center.x * sx, -box.min.y * sy, -center.z * sz] as [number, number, number],
+    }
+  }, [model, item.width, item.depth, item.height])
   return <primitive object={model} scale={scale} position={pos} />
 }
 
@@ -365,9 +371,17 @@ function FurnitureItem({ item, onPick }: { item: Furniture; onPick?: (x: number,
   const commit = () => {
     const g = groupRef.current
     if (!g) return
+    // gizmo ღერძებად ამასშტაბებს — ვიღებთ იმ ღერძს, რომელიც ყველაზე მეტად შეიცვალა
+    // (მხოლოდ .x რომ ავიღოთ, Y/Z სახელურით ცვლილება იკარგებოდა → „რესეტი")
+    const prev = item.scale ?? 1
+    let sc = prev, dev = 0
+    for (const c of [g.scale.x, g.scale.y, g.scale.z]) {
+      const d = Math.abs(c - prev)
+      if (d > dev) { dev = d; sc = c }
+    }
     updateFurniture(item.id, {
       x: g.position.x, z: g.position.z,
-      rotation: g.rotation.y, scale: Math.max(0.2, g.scale.x),
+      rotation: g.rotation.y, scale: Math.max(0.2, sc),
     })
   }
   const show =
